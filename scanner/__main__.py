@@ -30,7 +30,9 @@ def parse_date(s: str) -> dt.date:
 def print_report(rep):
     for k, v in rep["sessions"].items():
         print(f"  {k}盤 TX {v.get('expiry')}：{v['label']}  收 {v.get('close')} ({v.get('pct')}%)")
-    print(f"  訊號 {len(rep['signals'])} 筆，可成交 {sum(s['feasible'] for s in rep['signals'])} 筆")
+    sig = rep["signals"]
+    print(f"  訊號 {len(sig)} 筆：可成交無風險 {sum(s['feasible'] and s['riskless'] for s in sig)}、"
+          f"基差交易 {sum(not s['riskless'] for s in sig)}")
 
 
 def main(argv=None) -> int:

@@ -62,16 +62,19 @@ function renderTypeFilter() {
 }
 
 function renderSignals() {
-  const feas = $("#fFeas").checked, deep = $("#fDeep").checked, type = $("#fType").value;
-  const rows = REP.signals.filter((s) => (!feas || s.feasible) && (!deep || s.deep_otm) && (!type || s.type === type));
-  $("#sigTable").innerHTML = `<tr><th>類型</th><th>週別</th><th>時段</th><th>組合</th><th>淨利(點)</th><th>淨利(元)</th>
+  const feas = $("#fFeas").checked, deep = $("#fDeep").checked, basis = $("#fBasis").checked, type = $("#fType").value;
+  const riskless = (s) => s.riskless !== false;
+  const rows = REP.signals.filter((s) => (!feas || s.feasible) && (!deep || s.deep_otm) &&
+    (basis || riskless(s)) && (!type || s.type === type));
+  const hidden = REP.signals.filter((s) => !riskless(s)).length;
+  $("#sigTable").innerHTML = `<tr><th>類型</th><th>性質</th><th>週別</th><th>時段</th><th>組合</th><th>淨利(點)</th><th>淨利(元)</th>
     <th>成本(點)</th><th>可否成交</th><th>深價外</th><th>備註</th></tr>` +
     (rows.length ? rows.map((s) => `<tr class="click" data-exp="${esc(s.expiry)}" data-sess="${esc(s.session)}">
-      <td>${esc(s.type)}</td><td>${esc(s.expiry)}</td><td>${esc(s.session)}</td><td>${esc(s.legs)}</td>
+      <td>${esc(s.type)}</td><td class="${riskless(s) ? "yes" : "no"}">${riskless(s) ? "套利" : "基差"}</td><td>${esc(s.expiry)}</td><td>${esc(s.session)}</td><td>${esc(s.legs)}</td>
       <td class="n">${fmt(s.edge_pts, 2)}</td><td class="n">${fmt(s.edge_ntd, 0)}</td><td class="n">${fmt(s.cost_pts, 2)}</td>
       <td class="${s.feasible ? "yes" : "no"}">${s.feasible ? "可" : "需排隊"}</td><td>${s.deep_otm ? "★" : ""}</td>
       <td class="mut">${esc(s.note)}</td></tr>`).join("")
-      : `<tr><td colspan="10" class="empty">扣除成本後無符合條件的訊號</td></tr>`);
+      : `<tr><td colspan="11" class="empty">扣除成本後無符合條件的訊號${!basis && hidden ? `（另有 ${hidden} 筆基差交易，勾選「含基差交易」可看）` : ""}</td></tr>`);
   document.querySelectorAll("#sigTable tr.click").forEach((tr) => tr.onclick = () => {
     $("#series").value = tr.dataset.exp + "|" + tr.dataset.sess;
     switchTab("chain"); renderChain();
@@ -107,13 +110,13 @@ function renderChain() {
 }
 
 function renderHistory() {
-  $("#histTable").innerHTML = `<tr><th>交易日</th><th>狀態</th><th>漲跌%</th><th>可成交訊號</th><th>最佳訊號</th></tr>` +
+  $("#histTable").innerHTML = `<tr><th>交易日</th><th>狀態</th><th>漲跌%</th><th>可成交套利</th><th>基差交易</th><th>最佳訊號</th></tr>` +
     INDEX.days.map((d) => {
       const st = Object.entries(d.status).map(([k, v]) => `<span class="${v}">${k}:${STATUS[v] || v}</span>`).join(" ");
       const pct = Object.values(d.pct || {}).map((x) => fmt(x, 2)).join(" / ");
       const best = d.best ? `${esc(d.best.type)} ${fmt(d.best.edge_pts, 2)} 點` : "-";
       return `<tr class="click" data-date="${d.date}"><td>${d.date}${d.limit_event ? " ⚠" : ""}</td><td>${st}</td>
-        <td class="n">${pct}</td><td class="n">${d.n_feasible}</td><td>${best}</td></tr>`;
+        <td class="n">${pct}</td><td class="n">${d.n_feasible}</td><td class="n">${d.n_basis ?? "-"}</td><td>${best}</td></tr>`;
     }).join("");
   document.querySelectorAll("#histTable tr.click").forEach((tr) => tr.onclick = () => {
     $("#date").value = tr.dataset.date; loadDay(tr.dataset.date); switchTab("signals");
@@ -126,7 +129,7 @@ function switchTab(name) {
 }
 
 document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
-["#fFeas", "#fDeep", "#fType"].forEach((s) => ($(s).onchange = renderSignals));
+["#fFeas", "#fDeep", "#fBasis", "#fType"].forEach((s) => ($(s).onchange = renderSignals));
 $("#series").onchange = renderChain;
 $("#fQuoted").onchange = renderChain;
 init();

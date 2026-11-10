@@ -27,8 +27,8 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False) -> di
             "gap": round(fwd - F, 1) if fwd else None,
             "chain": [{"k": k, "C": q.get("C"), "P": q.get("P")} for k, q in ch.items()],
         })
-        signals += scan_chain(ch, exp, sess, F, st["status"], cfg, all_strikes)
-    signals.sort(key=lambda s: (not s["feasible"], -s["edge_pts"]))
+        signals += scan_chain(ch, exp, sess, F, st["status"], cfg, all_strikes, st.get("expiry"))
+    signals.sort(key=lambda s: (not (s["feasible"] and s["riskless"]), not s["feasible"], -s["edge_pts"]))
     return {
         "date": date.isoformat(),
         "generated": dt.datetime.now(TPE).isoformat(timespec="seconds"),
@@ -39,13 +39,14 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False) -> di
 
 
 def summary(rep: dict) -> dict:
-    feas = [s for s in rep["signals"] if s["feasible"]]
+    feas = [s for s in rep["signals"] if s["feasible"] and s["riskless"]]
     best = feas[0] if feas else None
     return {
         "date": rep["date"], "limit_event": rep["limit_event"],
         "status": {k: v["status"] for k, v in rep["sessions"].items()},
         "pct": {k: v.get("pct") for k, v in rep["sessions"].items()},
         "n_signals": len(rep["signals"]), "n_feasible": len(feas),
+        "n_basis": sum(1 for s in rep["signals"] if not s["riskless"]),
         "best": {k: best[k] for k in ("type", "expiry", "edge_pts", "legs")} if best else None,
     }
 

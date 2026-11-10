@@ -11,8 +11,9 @@ FX = Path(__file__).parent / "fixtures"
 
 
 def load(name):
-    return (taifex.parse(taifex.read_text(FX / f"{name}_TX.csv")),
-            taifex.parse(taifex.read_text(FX / f"{name}_TXO.csv")))
+    ext = ".csv.gz" if name.startswith("taifex") else ".csv"
+    return (taifex.parse(taifex.read_text(FX / f"{name}_TX{ext}")),
+            taifex.parse(taifex.read_text(FX / f"{name}_TXO{ext}")))
 
 
 def test_limit_status_thresholds():
@@ -32,17 +33,25 @@ def test_synthetic_limit_up_finds_planted_errors():
     types = {s["type"] for s in rep["signals"] if s["feasible"]}
     assert {"Put 單調性", "Call 單調性", "Put 蝴蝶凸性", "Call 蝴蝶凸性"} <= types
     # 期貨鎖漲停、選擇權隱含價更高 → Conversion 看起來有利，但必須標為不可成交
-    conv = [s for s in rep["signals"] if s["type"] == "Conversion"]
+    conv = [s for s in rep["signals"] if s["type"].startswith("Conversion")]
     assert conv and not any(s["feasible"] for s in conv)
 
 
-def test_real_20261110_is_clean():
-    fut, opt = load("real_20261110")
+def test_taifex_20261110_basis_not_arbitrage():
+    """期交所原始資料：近月期貨對週選有正價差，Reversal 看似有利，但到期日不同 → 只能算基差交易。"""
+    fut, opt = load("taifex_20261110")
     rep = analyze(dt.date(2026, 11, 10), fut, opt, load_config())
     assert not rep["limit_event"]
-    assert rep["signals"] == []
-    s = rep["series"][0]
-    assert abs(s["gap"]) < 50 and len(s["chain"]) > 200
+    assert {s["session"] for s in rep["series"]} == {"一般", "盤後"}
+    assert any(not s["riskless"] for s in rep["signals"])
+    assert not [s for s in rep["signals"] if s["riskless"] and s["feasible"]]
+    assert all(s["type"].endswith("（基差）") for s in rep["signals"] if not s["riskless"])
+
+
+def test_same_expiry_mapping():
+    from scanner.checks import same_expiry
+    assert same_expiry("202611W3", "202611") and same_expiry("202611", "202611")
+    assert not same_expiry("202611W2", "202611") and not same_expiry("202611F3", "202611")
 
 
 def test_costs_are_charged():

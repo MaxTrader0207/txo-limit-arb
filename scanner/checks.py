@@ -7,7 +7,13 @@ from __future__ import annotations
 
 from .market import ok
 
-BASIS_NOTE = "週選與近月期貨到期日不同，含基差風險"
+BASIS_NOTE = "到期日與近月期貨不同：選擇權結算後期貨仍未平倉，損益取決於屆時基差，不是無風險套利"
+SAME_EXP_NOTE = "與近月期貨同日結算"
+
+
+def same_expiry(opt_exp: str, fut_exp: str | None) -> bool:
+    """月選、或第三週週三的 W3，與近月台指期同一天結算。"""
+    return bool(fut_exp) and opt_exp in (fut_exp, f"{fut_exp}W3")
 
 
 def opt_cost(premium, cfg) -> float:
@@ -23,14 +29,14 @@ class Collector:
         self.exp, self.sess, self.cfg = exp, sess, cfg
         self.items: dict[str, list] = {}
 
-    def add(self, kind, legs, edge, cost, *, feasible=True, note="", deep=False, strikes=()):
+    def add(self, kind, legs, edge, cost, *, feasible=True, note="", deep=False, strikes=(), riskless=True):
         if edge < self.cfg["min_edge"]:
             return
         self.items.setdefault(kind, []).append({
             "type": kind, "expiry": self.exp, "session": self.sess, "legs": legs,
             "edge_pts": round(edge, 2), "edge_ntd": round(edge * self.cfg["point_value"]),
             "cost_pts": round(cost, 2), "feasible": feasible, "note": note,
-            "deep_otm": deep, "strikes": [float(k) for k in strikes],
+            "deep_otm": deep, "strikes": [float(k) for k in strikes], "riskless": riskless,
         })
 
     def result(self):
@@ -41,7 +47,7 @@ class Collector:
 
 
 def scan_chain(chain: dict, exp: str, sess: str, F: float, status: str, cfg: dict,
-               all_strikes: bool = False) -> list[dict]:
+               all_strikes: bool = False, fut_expiry: str | None = None) -> list[dict]:
     p = cfg["deep_otm_pct"]
     call_deep = lambda k: k >= F * (1 + p)
     put_deep = lambda k: k <= F * (1 - p)
@@ -50,6 +56,8 @@ def scan_chain(chain: dict, exp: str, sess: str, F: float, status: str, cfg: dic
     ks = list(chain)
 
     # 1) 期貨平價 ---------------------------------------------------------------
+    riskless = same_expiry(exp, fut_expiry)
+    sfx = "" if riskless else "（基差）"
     for k, q in chain.items():
         c, pq = q.get("C"), q.get("P")
         if not c or not pq:
@@ -58,17 +66,17 @@ def scan_chain(chain: dict, exp: str, sess: str, F: float, status: str, cfg: dic
         if ok(c["bid"]) and ok(pq["ask"]):          # Conversion：買期、買P、賣C
             cost = oc(c["bid"]) + oc(pq["ask"]) + fut_cost(F, cfg)
             feas = status != "LIMIT_UP"
-            col.add("Conversion",
+            col.add("Conversion" + sfx,
                     f"買小台@{F:g}、買P{k:g}@{pq['ask']:g}、賣C{k:g}@{c['bid']:g}",
-                    c["bid"] - pq["ask"] - (F - k) - cost, cost, feasible=feas, deep=deep, strikes=(k,),
-                    note=BASIS_NOTE if feas else "期貨漲停鎖死，買進期貨需排隊（多半成交不到）")
+                    c["bid"] - pq["ask"] - (F - k) - cost, cost, feasible=feas, deep=deep, strikes=(k,), riskless=riskless,
+                    note=(SAME_EXP_NOTE if riskless else BASIS_NOTE) if feas else "期貨漲停鎖死，買進期貨需排隊（多半成交不到）")
         if ok(c["ask"]) and ok(pq["bid"]):          # Reversal：賣期、賣P、買C
             cost = oc(c["ask"]) + oc(pq["bid"]) + fut_cost(F, cfg)
             feas = status != "LIMIT_DOWN"
-            col.add("Reversal",
+            col.add("Reversal" + sfx,
                     f"賣小台@{F:g}、賣P{k:g}@{pq['bid']:g}、買C{k:g}@{c['ask']:g}",
-                    (F - k) - (c["ask"] - pq["bid"]) - cost, cost, feasible=feas, deep=deep, strikes=(k,),
-                    note=BASIS_NOTE if feas else "期貨跌停鎖死，賣出期貨需排隊（多半成交不到）")
+                    (F - k) - (c["ask"] - pq["bid"]) - cost, cost, feasible=feas, deep=deep, strikes=(k,), riskless=riskless,
+                    note=(SAME_EXP_NOTE if riskless else BASIS_NOTE) if feas else "期貨跌停鎖死，賣出期貨需排隊（多半成交不到）")
 
     # 2) Box spread（純選擇權）---------------------------------------------------
     full = [k for k in ks if chain[k].get("C") and chain[k].get("P")]
