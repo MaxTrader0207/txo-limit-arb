@@ -599,12 +599,28 @@
 "prev_close": 33072.97,
 "source": "Yahoo ^TWII"
 },
+"2026-02-23": {
+"close": 33773.26,
+"high": 34212.38,
+"low": 33663.02,
+"open": 33663.02,
+"prev_close": 33605.71,
+"source": "Yahoo ^TWII"
+},
 "2026-02-25": {
 "close": 35413.07,
 "high": 35521.54,
 "low": 34753.31,
 "open": 34753.31,
 "prev_close": 34700.82,
+"source": "Yahoo ^TWII"
+},
+"2026-03-02": {
+"close": 35095.09,
+"high": 35345.72,
+"low": 34605.36,
+"open": 35277.48,
+"prev_close": 35414.49,
 "source": "Yahoo ^TWII"
 },
 "2026-03-04": {
@@ -679,6 +695,14 @@
 "prev_close": 31722.99,
 "source": "Yahoo ^TWII"
 },
+"2026-04-07": {
+"close": 33229.82,
+"high": 33264.22,
+"low": 32671.52,
+"open": 32671.52,
+"prev_close": 32572.43,
+"source": "Yahoo ^TWII"
+},
 "2026-04-08": {
 "close": 34761.38,
 "high": 34761.38,
@@ -733,6 +757,14 @@
 "low": 38896.3,
 "open": 39176.24,
 "prev_close": 39521.73,
+"source": "Yahoo ^TWII"
+},
+"2026-05-04": {
+"close": 40705.14,
+"high": 40755.52,
+"low": 39228.39,
+"open": 39228.39,
+"prev_close": 38926.63,
 "source": "Yahoo ^TWII"
 },
 "2026-05-06": {
@@ -837,6 +869,14 @@
 "low": 45159.51,
 "open": 45685.27,
 "prev_close": 45809.19,
+"source": "Yahoo ^TWII"
+},
+"2026-06-22": {
+"close": 47741.51,
+"high": 47871.19,
+"low": 46679.57,
+"open": 46679.57,
+"prev_close": 46465.2,
 "source": "Yahoo ^TWII"
 },
 "2026-06-24": {
@@ -1045,6 +1085,14 @@
 "low": 47894.77,
 "open": 47894.77,
 "prev_close": 47800.17,
+"source": "Yahoo ^TWII"
+},
+"2026-09-29": {
+"close": 47631.96,
+"high": 48045.13,
+"low": 47573.09,
+"open": 47873.89,
+"prev_close": 48024.6,
 "source": "Yahoo ^TWII"
 },
 "2026-09-30": {
