@@ -175,3 +175,14 @@ def test_expiry_sell_flags_settlement_outside_bounds():
     opt = _opt_rows("202611W2", [(43000, "C", 700, 800, 10, 680.0)])   # 反推 43680 > 38800×1.1
     es = analyze_expiry(dt.date(2026, 11, 11), opt, {"202611W2": dt.date(2026, 11, 11)}, taiex, load_config())
     assert any("超出理論區間" in w for w in es["series"][0]["warnings"])
+
+
+def test_header_only_csv_is_holiday(tmp_path, monkeypatch):
+    """休市日期交所回傳只有表頭的 CSV，必須視為非交易日、不得封存。"""
+    import pytest
+    header = "交易日期,契約,到期月份(週別)\n"
+    arc = tmp_path / "2026"; arc.mkdir()
+    import gzip
+    (arc / "20261009_TX.csv.gz").write_bytes(gzip.compress(header.encode()))
+    with pytest.raises(taifex.NoData):
+        taifex.load(dt.date(2026, 10, 9), tmp_path, "cache")

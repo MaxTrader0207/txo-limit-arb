@@ -1,4 +1,8 @@
-"""證交所加權指數（TAIEX）資料：日 OHLC（含前日收盤）與盤中即時值。"""
+"""加權指數（TAIEX）資料：日 OHLC（含前日收盤）與盤中即時值。
+
+來源順序：證交所 → Yahoo Finance（^TWII）。證交所會擋部分海外 IP（GitHub Actions 主機即是），
+所以雲端排程實際上多半走 Yahoo；本機或台灣主機可直接用證交所。結果快取在 archive/taiex/days.json。
+"""
 from __future__ import annotations
 
 import datetime as dt
@@ -61,28 +65,83 @@ def month_ohlc(year: int, month: int, archive_dir: Path, mode: str = "refresh") 
     return parse_month(js)
 
 
-def day_info(date: dt.date, archive_dir: Path, mode: str = "refresh") -> dict | None:
-    """當日 OHLC 與前一交易日收盤；任何一個拿不到就回傳 None。"""
-    try:
-        cur = month_ohlc(date.year, date.month, archive_dir, mode)
-        prev_m = (date.replace(day=1) - dt.timedelta(days=1))
-        older = {d: v for d, v in cur.items() if d < date}
-        if not older:
-            older = month_ohlc(prev_m.year, prev_m.month, archive_dir, mode)
-    except (requests.RequestException, ValueError) as e:
-        print(f"  [警告] 加權指數資料取得失敗：{e}")
-        return None
+def _twse_day(date: dt.date, archive_dir: Path, mode: str) -> dict | None:
+    cur = month_ohlc(date.year, date.month, archive_dir, mode)
+    prev_m = date.replace(day=1) - dt.timedelta(days=1)
+    older = {d: v for d, v in cur.items() if d < date}
+    if not older:
+        older = month_ohlc(prev_m.year, prev_m.month, archive_dir, mode)
     today = cur.get(date)
     if not today or not older:
         return None
-    prev_close = older[max(older)]["close"]
-    pct = lambda x: round((x / prev_close - 1) * 100, 2) if x and prev_close else None
-    return {"date": date.isoformat(), **today, "prev_close": prev_close,
-            "pct": pct(today["close"]), "high_pct": pct(today["high"]), "low_pct": pct(today["low"])}
+    return {**today, "prev_close": older[max(older)]["close"], "source": "TWSE"}
+
+
+def _yahoo_day(date: dt.date) -> dict | None:
+    import yfinance as yf
+    h = yf.Ticker("^TWII").history(start=date - dt.timedelta(days=20), end=date + dt.timedelta(days=1),
+                                   interval="1d", auto_adjust=False)
+    if h.empty:
+        return None
+    h.index = [i.date() for i in h.index]
+    if date not in h.index:
+        return None
+    prev = h[h.index < date]
+    if prev.empty:
+        return None
+    r = h.loc[date]
+    return {"open": round(float(r["Open"]), 2), "high": round(float(r["High"]), 2),
+            "low": round(float(r["Low"]), 2), "close": round(float(r["Close"]), 2),
+            "prev_close": round(float(prev["Close"].iloc[-1]), 2), "source": "Yahoo ^TWII"}
+
+
+def day_info(date: dt.date, archive_dir: Path, mode: str = "refresh") -> dict | None:
+    """當日 OHLC 與前一交易日收盤；任何一個拿不到就回傳 None。"""
+    cache_p = archive_dir / "taiex" / "days.json"
+    cache = json.loads(cache_p.read_text("utf-8")) if cache_p.exists() else {}
+    base = cache.get(date.isoformat()) if mode != "refresh" else None
+    if base is None and mode != "offline":
+        for name, fn in (("TWSE", lambda: _twse_day(date, archive_dir, mode)), ("Yahoo", lambda: _yahoo_day(date))):
+            try:
+                base = fn()
+            except Exception as e:                       # 來源失效時改用下一個
+                print(f"  [警告] 加權指數（{name}）取得失敗：{str(e)[:120]}")
+                base = None
+            if base:
+                break
+        if base:
+            cache[date.isoformat()] = base
+            cache_p.parent.mkdir(parents=True, exist_ok=True)
+            cache_p.write_text(json.dumps(cache, ensure_ascii=False, indent=0, sort_keys=True), "utf-8")
+    if not base:
+        return None
+    pc = base["prev_close"]
+    pct = lambda x: round((x / pc - 1) * 100, 2) if x and pc else None
+    return {"date": date.isoformat(), **base,
+            "pct": pct(base["close"]), "high_pct": pct(base["high"]), "low_pct": pct(base["low"])}
 
 
 def realtime() -> dict | None:
-    """盤中加權指數（證交所基本市況報導，約 5 秒更新）。"""
+    """盤中加權指數：證交所基本市況報導（約 5 秒更新），失敗改用 Yahoo（可能延遲）。"""
+    try:
+        return _twse_realtime()
+    except Exception as e:
+        print(f"  [警告] 證交所即時指數失敗：{str(e)[:120]}，改用 Yahoo")
+    import yfinance as yf
+    t = yf.Ticker("^TWII")
+    h = t.history(period="1d", interval="1m")
+    d = t.history(period="5d", interval="1d")
+    if h.empty or len(d) < 2:
+        return None
+    last = float(h["Close"].iloc[-1])
+    today = h.index[-1].date()
+    prev = float(d[[i.date() < today for i in d.index]]["Close"].iloc[-1])
+    return {"time": h.index[-1].strftime("%Y%m%d %H:%M:%S"), "last": round(last, 2), "prev_close": round(prev, 2),
+            "high": round(float(h["High"].max()), 2), "low": round(float(h["Low"].min()), 2),
+            "pct": round((last / prev - 1) * 100, 2), "source": "Yahoo ^TWII（可能延遲）"}
+
+
+def _twse_realtime() -> dict | None:
     r = requests.get(LIVE_URL, params={"ex_ch": "tse_t00.tw", "json": "1", "delay": "0"},
                      headers=HEADERS, timeout=20)
     r.raise_for_status()
@@ -94,4 +153,5 @@ def realtime() -> dict | None:
     if last is None or prev is None:
         return None
     return {"time": f"{m.get('d', '')} {m.get('t', '')}".strip(), "last": last, "prev_close": prev,
-            "high": _num(m.get("h")), "low": _num(m.get("l")), "pct": round((last / prev - 1) * 100, 2)}
+            "high": _num(m.get("h")), "low": _num(m.get("l")), "pct": round((last / prev - 1) * 100, 2),
+            "source": "TWSE"}

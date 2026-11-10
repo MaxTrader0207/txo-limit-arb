@@ -66,7 +66,7 @@ function renderExpiry() {
       <div class="card"><div class="mut">加權指數 · ${esc(es.date)}</div>
         <div class="big ${esc(es.state)}">${esc(es.state_label)}</div>
         <div>收 ${fmt(t.close, 2)}　<span class="${t.pct >= 0 ? "up" : "dn"}">${t.pct >= 0 ? "+" : ""}${esc(t.pct)}%</span></div>
-        <div class="mut">前收 ${fmt(t.prev_close, 2)}　高 ${esc(t.high_pct)}%　低 ${esc(t.low_pct)}%</div></div>
+        <div class="mut">前收 ${fmt(t.prev_close, 2)}　高 ${esc(t.high_pct)}%　低 ${esc(t.low_pct)}%　來源 ${esc(t.source || "-")}</div></div>
       <div class="card"><div class="mut">結算價必在區間內</div>
         <div class="big">${fmt(b.floor, 0)} ～ ${fmt(b.ceiling, 0)}</div>
         <div class="mut">零風險：Call K &gt; ${fmt(b.ceiling, 0)}、Put K &lt; ${fmt(b.floor, 0)}</div></div>

@@ -37,8 +37,22 @@ def print_report(rep):
           f"基差交易 {sum(not s['riskless'] for s in sig)}")
 
 
+def expiring_today(d: dt.date) -> list[str]:
+    """盤中還沒有當日 CSV：讀最近一份封存的 TXO CSV「契約到期日」（含假日順延）；沒有封存才用代碼推算。"""
+    from .market import expiry_dates
+    files = sorted(p for p in ARCHIVE.glob("*/*_TXO.csv.gz") if p.name[:8] < f"{d:%Y%m%d}")
+    for p in reversed(files[-5:]):
+        try:
+            opt = taifex.parse(taifex.read_text(p))
+        except Exception:
+            continue
+        if len(opt):
+            return sorted(e for e, x in expiry_dates(opt).items() if x == d)
+    return expiring_codes(d)
+
+
 def expiring_codes(d: dt.date) -> list[str]:
-    """依代碼規則推算今天結算的序列（盤中還沒有期交所當日 CSV 可查）。"""
+    """依代碼規則推算今天結算的序列（不含假日順延）。"""
     n, ym = (d.day - 1) // 7 + 1, f"{d:%Y%m}"
     if d.weekday() == 2:
         return [ym] if n == 3 else [f"{ym}W{n}"]
@@ -51,7 +65,7 @@ def run_live(cfg) -> int:
     import json
     from . import twse
     now = dt.datetime.now(TPE)
-    exp = expiring_codes(now.date())
+    exp = expiring_today(now.date())
     if not exp:
         print("今天不是結算日")
         return 0

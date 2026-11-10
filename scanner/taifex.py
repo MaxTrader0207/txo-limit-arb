@@ -40,7 +40,8 @@ def download(kind: str, date: dt.date, retries: int = 3) -> str:
             r = requests.post(url, data=form, headers=HEADERS, timeout=60)
             r.raise_for_status()
             text = r.content.decode("cp950", errors="replace")
-            if "交易日期" not in text[:300]:
+            lines = [ln for ln in text.splitlines() if ln.strip()]
+            if "交易日期" not in text[:300] or len(lines) < 2:
                 raise NoData(f"{cid} {d} 查無資料（非交易日或尚未更新）")
             return text
         except NoData:
@@ -99,6 +100,8 @@ def load(date: dt.date, archive_dir: Path, mode: str = "refresh") -> tuple[pd.Da
         p = archive_dir / date.strftime("%Y") / f"{date:%Y%m%d}_{kind}.csv.gz"
         if p.exists() and mode != "refresh":
             text = read_text(p)
+            if len([ln for ln in text.splitlines() if ln.strip()]) < 2:
+                raise NoData(f"封存的 {p.name} 為空（非交易日）")
         elif offline:
             raise NoData(f"封存中沒有 {p.name}")
         else:
