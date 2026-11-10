@@ -1,0 +1,33 @@
+:root{--bg:#0d1117;--card:#161b22;--line:#30363d;--fg:#e6edf3;--mut:#8b949e;--up:#f85149;--dn:#3fb950;--warn:#d29922;--acc:#58a6ff;
+--deep:rgba(88,166,255,.07);--atm:rgba(210,153,34,.18);--hit:rgba(248,81,73,.22)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;padding:16px;max-width:1200px;margin:auto}
+header{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:flex-end}
+h1{font-size:19px;margin:0}h3{font-size:14px;color:var(--mut);margin:20px 0 6px}
+.mut{color:var(--mut);font-size:12px}
+select,button{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:inherit}
+.pick{color:var(--mut)}
+.banner{margin:14px 0;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card)}
+.banner.alert{border-color:var(--warn);color:var(--warn)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px}
+.big{font-size:22px;font-weight:700}
+.LIMIT_UP,.TOUCHED_UP,.NEAR_UP,.up{color:var(--up)}.LIMIT_DOWN,.TOUCHED_DOWN,.NEAR_DOWN,.dn{color:var(--dn)}
+.tabs{display:flex;gap:6px;margin:18px 0 10px;border-bottom:1px solid var(--line)}
+.tabs button{border:none;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--mut);padding:8px 10px;cursor:pointer}
+.tabs button.on{color:var(--fg);border-color:var(--acc)}
+.filters{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:10px}
+.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;background:var(--card);font-size:13px}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;white-space:nowrap}
+th{color:var(--mut);font-weight:500;position:sticky;top:0;background:var(--card)}
+td.n{text-align:right;font-variant-numeric:tabular-nums}
+#chainTable td.k{text-align:center;font-weight:600}
+tr.deep{background:var(--deep)}tr.atm{background:var(--atm)}tr.hit{background:var(--hit)}
+.yes{color:var(--dn)}.no{color:var(--warn)}
+.empty{color:var(--mut);text-align:center;padding:18px}
+tr.click{cursor:pointer}tr.click:hover{background:rgba(255,255,255,.04)}
+.legend{font-size:12px;color:var(--mut)}.lg{display:inline-block;width:10px;height:10px;margin:0 3px 0 8px;border-radius:2px}
+.lg.deep{background:#1f3550}.lg.atm{background:#5a4416}.lg.hit{background:#6b2523}
+footer{margin:24px 0 8px}
+@media(max-width:600px){body{padding:12px}h1{font-size:16px}.big{font-size:19px}}

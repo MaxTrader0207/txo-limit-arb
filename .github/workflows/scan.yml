@@ -1,0 +1,83 @@
+name: 掃描並部署
+
+on:
+  schedule:
+    - cron: "40 7 * * 1-5"    # 台北 15:40：日盤資料
+    - cron: "10 9 * * 1-5"    # 台北 17:10：補抓（期交所延遲更新時）
+    - cron: "30 22 * * 1-5"   # 台北隔日 06:30：夜盤資料
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "run＝單日、backfill＝區間回測、rebuild＝用封存重算、deploy＝只部署"
+        type: choice
+        options: [run, backfill, rebuild, deploy]
+        default: run
+      date:
+        description: "run 用：YYYY-MM-DD（空白＝台北今天）"
+        default: ""
+      start:
+        description: "backfill 用：起日 YYYY-MM-DD"
+        default: ""
+      end:
+        description: "backfill 用：迄日 YYYY-MM-DD"
+        default: ""
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Taipei
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: 執行掃描
+        if: ${{ github.event_name == 'schedule' || inputs.mode == 'run' }}
+        run: python -m scanner run --date "${{ inputs.date }}"
+      - name: 區間回測
+        if: ${{ inputs.mode == 'backfill' }}
+        run: python -m scanner backfill --start "${{ inputs.start }}" --end "${{ inputs.end }}"
+      - name: 用封存重算
+        if: ${{ inputs.mode == 'rebuild' }}
+        run: python -m scanner rebuild
+
+      - name: 提交資料
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data archive
+          if git diff --cached --quiet; then echo "無新資料"; exit 0; fi
+          git commit -m "data: ${{ inputs.mode || 'run' }} $(date +%F_%H%M)"
+          for i in 1 2 3; do git pull --rebase && git push && exit 0; sleep 5; done
+          exit 1
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: scan
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.dep.outputs.page_url }}
+    steps:
+      - id: dep
+        uses: actions/deploy-pages@v4

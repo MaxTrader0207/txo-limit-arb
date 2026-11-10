@@ -1,0 +1,118 @@
+"""期貨狀態判斷、選擇權鏈整理。"""
+from __future__ import annotations
+
+import math
+import re
+
+import pandas as pd
+
+
+def num(x):
+    try:
+        x = float(x)
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(x) else x
+
+
+def ok(x) -> bool:
+    return x is not None and x > 0
+
+
+# ------------------------------------------------------------------ 期貨
+def front_futures(fut: pd.DataFrame) -> dict:
+    """各交易時段的近月 TX（排除價差契約）。"""
+    tx = fut[(fut["contract"] == "TX") & fut["expiry"].str.fullmatch(r"\d{6}")]
+    return {sess: g.sort_values("expiry").iloc[0] for sess, g in tx.groupby("session")}
+
+
+STATUS_LABEL = {
+    "LIMIT_UP": "漲停鎖住", "LIMIT_DOWN": "跌停鎖住", "TOUCHED_UP": "盤中觸及漲停",
+    "TOUCHED_DOWN": "盤中觸及跌停", "NEAR_UP": "接近漲停", "NEAR_DOWN": "接近跌停",
+    "NORMAL": "正常", "UNKNOWN": "資料不足",
+}
+LIMIT_EVENTS = {"LIMIT_UP", "LIMIT_DOWN", "TOUCHED_UP", "TOUCHED_DOWN"}
+
+
+def limit_status(row, cfg) -> dict:
+    close = num(row.get("close")) or num(row.get("settle"))
+    chg = num(row.get("chg"))
+    hi, lo = num(row.get("high")), num(row.get("low"))
+    res = {"expiry": row.get("expiry"), "close": close, "high": hi, "low": lo, "chg": chg}
+    if close is None or chg is None:
+        return {**res, "status": "UNKNOWN", "label": STATUS_LABEL["UNKNOWN"]}
+    prev = close - chg                       # 期交所漲跌價以前一日結算價為基準
+    up = math.floor(prev * (1 + cfg["limit_pct"]))
+    dn = math.ceil(prev * (1 - cfg["limit_pct"]))
+    pct = chg / prev if prev else 0.0
+    tol = cfg["limit_tol_pts"]
+    if close >= up - tol:
+        s = "LIMIT_UP"
+    elif close <= dn + tol:
+        s = "LIMIT_DOWN"
+    elif hi is not None and hi >= up - tol:
+        s = "TOUCHED_UP"
+    elif lo is not None and lo <= dn + tol:
+        s = "TOUCHED_DOWN"
+    elif pct >= cfg["near_limit_pct"]:
+        s = "NEAR_UP"
+    elif pct <= -cfg["near_limit_pct"]:
+        s = "NEAR_DOWN"
+    else:
+        s = "NORMAL"
+    return {**res, "status": s, "label": STATUS_LABEL[s], "prev_settle": prev,
+            "limit_up": up, "limit_down": dn, "pct": round(pct * 100, 2)}
+
+
+# ------------------------------------------------------------------ 選擇權
+def is_weekly(expiry: str) -> bool:
+    return bool(re.search(r"[WF]\d", str(expiry)))
+
+
+def _quote(r) -> dict:
+    q = {"bid": num(r.get("bid")), "ask": num(r.get("ask")), "last": num(r.get("close")),
+         "settle": num(r.get("settle")), "vol": num(r.get("volume")), "oi": num(r.get("oi"))}
+    if ok(q["bid"]) and ok(q["ask"]) and q["bid"] > q["ask"]:   # 交叉報價視為資料錯誤
+        q["bid"] = q["ask"] = None
+    return q
+
+
+def build_chains(opt: pd.DataFrame, include_monthly: bool = False) -> dict:
+    """回傳 {(到期別, 時段): {履約價: {"C": quote, "P": quote}}}。"""
+    o = opt[opt["contract"] == "TXO"]
+    exps = set(e for e in o["expiry"].unique() if is_weekly(e))
+    if include_monthly:
+        monthly = sorted(e for e in o["expiry"].unique() if re.fullmatch(r"\d{6}", e))
+        exps |= set(monthly[:1])
+    chains = {}
+    for (exp, sess), g in o[o["expiry"].isin(exps)].groupby(["expiry", "session"]):
+        ch: dict = {}
+        for _, r in g.iterrows():
+            k = num(r["strike"])
+            if k is None:
+                continue
+            side = "C" if ("買" in r["cp"] or r["cp"].upper().startswith("C")) else "P"
+            ch.setdefault(k, {})[side] = _quote(r)
+        chains[(exp, sess)] = dict(sorted(ch.items()))
+    return chains
+
+
+def mid(q):
+    if q and ok(q["bid"]) and ok(q["ask"]):
+        return (q["bid"] + q["ask"]) / 2
+    if q and ok(q.get("settle")):
+        return q["settle"]
+    return None
+
+
+def implied_forward(chain: dict, F: float, n: int = 5):
+    """ATM 附近 n 檔 K + C − P 的中位數。"""
+    pts = []
+    for k, q in chain.items():
+        cm, pm = mid(q.get("C")), mid(q.get("P"))
+        if cm is not None and pm is not None:
+            pts.append((abs(k - F), k + cm - pm))
+    if not pts:
+        return None
+    vals = sorted(v for _, v in sorted(pts)[:n])
+    return vals[len(vals) // 2]

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>週選漲跌停套利掃描</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div>
+    <h1>TXO 週選 × 台指期 漲跌停套利掃描</h1>
+    <div class="mut" id="updated">載入中…</div>
+  </div>
+  <label class="pick">交易日 <select id="date"></select></label>
+</header>
+
+<div id="banner" class="banner"></div>
+<section class="cards" id="sessions"></section>
+
+<nav class="tabs">
+  <button data-tab="signals" class="on">套利訊號</button>
+  <button data-tab="chain">選擇權鏈</button>
+  <button data-tab="history">歷史紀錄</button>
+</nav>
+
+<section id="tab-signals" class="tab">
+  <div class="filters">
+    <label><input type="checkbox" id="fFeas" checked> 只看可成交</label>
+    <label><input type="checkbox" id="fDeep"> 只看深價外</label>
+    <select id="fType"><option value="">全部類型</option></select>
+  </div>
+  <div class="wrap"><table id="sigTable"></table></div>
+  <h3>選擇權隱含期貨價</h3>
+  <div class="wrap"><table id="fwdTable"></table></div>
+</section>
+
+<section id="tab-chain" class="tab" hidden>
+  <div class="filters">
+    <select id="series"></select>
+    <label><input type="checkbox" id="fQuoted" checked> 隱藏無報價履約價</label>
+    <span class="legend"><i class="lg deep"></i>深價外 <i class="lg atm"></i>價平 <i class="lg hit"></i>訊號履約價</span>
+  </div>
+  <div class="wrap"><table id="chainTable"></table></div>
+</section>
+
+<section id="tab-history" class="tab" hidden>
+  <div class="wrap"><table id="histTable"></table></div>
+</section>
+
+<footer class="mut">
+  報價為期交所收盤「最後最佳買賣價」，盤後實際掛單可能不同。淨利已扣手續費與交易稅（單位：點，每點 50 元）。
+  本頁僅為偵測工具，非投資建議；下單前請以即時報價、保證金與成交可能性確認。
+</footer>
+<script src="app.js"></script>
+</body>
+</html>
