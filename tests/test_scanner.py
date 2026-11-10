@@ -96,3 +96,12 @@ def test_costs_are_charged():
     mono = [s for s in sig if s["type"] == "Call 單調性"][0]
     # 毛利 10.5 − 11 = −0.5，再扣兩腳手續費 0.8 與稅
     assert mono["edge_pts"] < -1.3
+
+
+def test_series_settled_today_is_excluded():
+    """W2 於 11/11 13:30 結算；以 11/11 為交易日分析時不得再出現在掃描序列中。"""
+    fut, opt = load("taifex_20261110")
+    rep = analyze(dt.date(2026, 11, 11), fut, opt, load_config())
+    assert "202611W2" not in {s["expiry"] for s in rep["series"]}
+    assert "202611W2" in {s["expiry"] for s in rep["expired_today"]}
+    assert "202611W2" not in {s["expiry"] for s in rep["signals"]}

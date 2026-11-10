@@ -7,12 +7,16 @@ from __future__ import annotations
 
 from .market import ok
 
-SAME_EXP_NOTE = "與對應期貨同日結算（同為台指特別結算價），到期損益鎖定"
+# TX 與 TXO（月選、週三週選、週五週選）最後結算價算法相同：
+# 到期日證交所收盤前 30 分鐘（13:00–13:30）加權指數之簡單算術平均價
+SETTLE_RULE = "到期日 13:00–13:30 加權指數簡單算術平均"
+SAME_EXP_NOTE = f"與對應期貨同日、同價結算（{SETTLE_RULE}），到期損益鎖定"
 
 
 def basis_note(h: dict) -> str:
     return (f"選擇權 {h['opt_settle']:%m/%d} 結算、TX {h['contract']} 於 {h['settle_date']:%m/%d} 結算，"
-            f"中間 {h['basis_days']} 天期貨部位未對沖，損益取決於屆時基差，不是無風險套利")
+            f"選擇權以當日 30 分鐘均價結算後，期貨部位還有 {h['basis_days']} 天未對沖，"
+            f"損益取決於屆時期貨與指數的價差，不是無風險套利")
 
 
 def opt_cost(premium, cfg) -> float:

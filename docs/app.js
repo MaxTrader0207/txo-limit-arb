@@ -89,7 +89,10 @@ function renderFwd() {
       <td>TX ${esc(r.hedge)}</td><td>${md(r.hedge_settle)}</td>
       <td class="${r.matched ? "yes" : "no"}">${r.matched ? "同日結算" : `差 ${r.basis_days} 天`}</td>
       <td class="${esc(r.status)}">${esc(r.status_label)}</td><td class="n">${fmt(r.futures, 0)}</td>
-      <td class="n">${fmt(r.implied_fwd)}</td><td class="n">${fmt(r.gap)}</td><td class="n">${r.chain.length}</td></tr>`).join("");
+      <td class="n">${fmt(r.implied_fwd)}</td><td class="n">${fmt(r.gap)}</td><td class="n">${r.chain.length}</td></tr>`).join("") +
+    (REP.expired_today || []).map((r) => `<tr class="mut"><td>${esc(r.expiry)}</td><td>${esc(r.session)}</td><td>${md(r.opt_settle)}</td>
+      <td colspan="8">今日 13:30 已結算，不列入掃描</td></tr>`).join("");
+  $("#settleRule").textContent = REP.settle_rule ? "結算規則：" + REP.settle_rule + "。結算標的是加權指數，不是期貨。" : "";
 }
 
 function renderSeriesSelect() {

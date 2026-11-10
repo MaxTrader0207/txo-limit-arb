@@ -26,9 +26,14 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False) -> di
     sessions = {s: limit_status(r, cfg) for s, r in front_futures(fut).items()}
 
     chains = build_chains(opt, cfg["include_monthly"])
-    series, signals = [], []
+    series, signals, expired = [], [], []
     for (exp, sess), ch in sorted(chains.items(), key=lambda x: (exp_dates.get(x[0][0], dt.date.max), x[0][1])):
         opt_settle = exp_dates.get(exp)
+        if opt_settle and opt_settle <= date:
+            # 到期契約最後交易日 13:30 收盤即以 30 分鐘均價結算、且無盤後時段；
+            # 排程在收盤後才跑，此序列已無法交易，不產生訊號
+            expired.append({"expiry": exp, "session": sess, "opt_settle": opt_settle.isoformat()})
+            continue
         h = hedge_for(opt_settle, futs.get(sess, [])) if opt_settle else None
         if h is None:
             print(f"  [警告] {exp} {sess} 找不到結算日 ≥ {opt_settle} 的 TX，略過")
@@ -55,7 +60,8 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False) -> di
         "generated": dt.datetime.now(TPE).isoformat(timespec="seconds"),
         "limit_event": any(s["status"] in LIMIT_EVENTS for s in sessions.values())
                        or any(st in LIMIT_EVENTS for _, st in used),
-        "sessions": sessions, "series": series, "signals": signals,
+        "sessions": sessions, "series": series, "signals": signals, "expired_today": expired,
+        "settle_rule": "TX 與 TXO（月選、週三 W1/W2/W4/W5、週五 F）最後結算價皆為到期日 13:00–13:30 加權指數簡單算術平均",
         "config": {k: v for k, v in cfg.items()},
     }
 
