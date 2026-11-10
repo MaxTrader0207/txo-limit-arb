@@ -4,6 +4,7 @@
   python -m scanner backfill --start 2025-04-01 --end 2025-04-30   回測區間
   python -m scanner rebuild                          用封存資料重算全部（改參數後用）
   python -m scanner file --fut TX.csv --opt TXO.csv --date 2026-11-10   離線 CSV
+  python -m scanner live                             結算日盤中：抓即時加權指數，算可賣界線
 """
 from __future__ import annotations
 
@@ -16,7 +17,8 @@ from pathlib import Path
 
 from . import taifex
 from .config import TPE, load_config
-from .notify import notify
+from .expiry_sell import live_zones
+from .notify import notify, notify_live
 from .pipeline import analyze, run_date, write
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,6 +37,46 @@ def print_report(rep):
           f"基差交易 {sum(not s['riskless'] for s in sig)}")
 
 
+def expiring_codes(d: dt.date) -> list[str]:
+    """依代碼規則推算今天結算的序列（盤中還沒有期交所當日 CSV 可查）。"""
+    n, ym = (d.day - 1) // 7 + 1, f"{d:%Y%m}"
+    if d.weekday() == 2:
+        return [ym] if n == 3 else [f"{ym}W{n}"]
+    if d.weekday() == 4:
+        return [f"{ym}F{n}"]
+    return []
+
+
+def run_live(cfg) -> int:
+    import json
+    from . import twse
+    now = dt.datetime.now(TPE)
+    exp = expiring_codes(now.date())
+    if not exp:
+        print("今天不是結算日")
+        return 0
+    rt = twse.realtime()
+    if not rt:
+        print("取不到即時加權指數")
+        return 0
+    z = live_zones(rt, exp, cfg)
+    z["fetched"] = now.isoformat(timespec="seconds")
+    z["date"] = now.date().isoformat()
+    p = DATA / "live.json"
+    hist = []
+    if p.exists():
+        old = json.loads(p.read_text("utf-8"))
+        hist = old.get("snapshots", []) if old.get("date") == z["date"] else []
+    hist.append({k: z[k] for k in ("fetched", "last", "pct", "state")})
+    z["snapshots"] = hist
+    DATA.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(z, ensure_ascii=False), "utf-8")
+    print(f"{z['fetched']} 加權 {rt['last']:,.2f}（{rt['pct']}%）{z['state_label']}；結算序列 {exp}")
+    print(f"  零風險：Call K > {z['bounds']['ceiling']:,}、Put K < {z['bounds']['floor']:,}；低風險：{z['low_zone'] or '無'}")
+    notify_live(z, os.environ.get("PAGES_URL", ""))
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="scanner")
     ap.add_argument("--min-edge", type=float)
@@ -42,6 +84,8 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run"); r.add_argument("--date", default="")
     b = sub.add_parser("backfill"); b.add_argument("--start", required=True); b.add_argument("--end", required=True)
+    b.add_argument("--expiry-only", action="store_true", help="只跑週三、週五（結算日）")
+    sub.add_parser("live")
     sub.add_parser("rebuild")
     f = sub.add_parser("file"); f.add_argument("--fut", required=True); f.add_argument("--opt", required=True)
     f.add_argument("--date", required=True)
@@ -60,7 +104,7 @@ def main(argv=None) -> int:
     if a.cmd == "backfill":
         d, end, n = parse_date(a.start), parse_date(a.end), 0
         while d <= end:
-            if d.weekday() < 5:
+            if d.weekday() < 5 and (not a.expiry_only or d.weekday() in (2, 4)):
                 print(f"▶ {d}")
                 if run_date(d, cfg, DATA, ARCHIVE, "cache", a.all_strikes):
                     n += 1
@@ -68,6 +112,9 @@ def main(argv=None) -> int:
             d += dt.timedelta(days=1)
         print(f"完成 {n} 個交易日")
         return 0
+
+    if a.cmd == "live":
+        return run_live(cfg)
 
     if a.cmd == "rebuild":
         for p in sorted(ARCHIVE.glob("*/*_TXO.csv.gz")):

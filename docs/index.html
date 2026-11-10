@@ -21,6 +21,7 @@
 <nav class="tabs">
   <button data-tab="signals" class="on">套利訊號</button>
   <button data-tab="chain">選擇權鏈</button>
+  <button data-tab="expiry">結算日賣方</button>
   <button data-tab="history">歷史紀錄</button>
 </nav>
 
@@ -44,6 +45,17 @@
     <span class="legend"><i class="lg deep"></i>深價外 <i class="lg atm"></i>價平 <i class="lg hit"></i>訊號履約價</span>
   </div>
   <div class="wrap"><table id="chainTable"></table></div>
+</section>
+
+<section id="tab-expiry" class="tab" hidden>
+  <div id="liveBox"></div>
+  <div id="expiryBox"></div>
+  <h3>歷次結算日</h3>
+  <div class="wrap"><table id="expHist"></table></div>
+  <p class="mut">原理：週選結算價＝結算日 13:00–13:30 加權指數平均，成分股單日漲跌幅 ±10%，
+  所以結算價必在「前日收盤 ×0.9 ～ ×1.1」之內（再外推 0.2% 緩衝）。零風險區＝Call 履約價高於上限、Put 低於下限，到期必歸零；
+  低風險區＝指數漲停日 Put 履約價 ≤ 前日收盤（跌停日反之 Call）。損益以當日最後成交價賣出、扣手續費與稅、按最後結算價計算，
+  屬事後驗證；賣方需保證金。</p>
 </section>
 
 <section id="tab-history" class="tab" hidden>

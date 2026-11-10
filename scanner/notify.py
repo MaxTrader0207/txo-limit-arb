@@ -6,6 +6,30 @@ import os
 import requests
 
 
+def _send(text: str) -> bool:
+    token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+    if not (token and chat):
+        return False
+    r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                      data={"chat_id": chat, "text": text}, timeout=30)
+    return r.ok
+
+
+def notify_live(z: dict, pages_url: str = "") -> bool:
+    """結算日盤中：指數接近或達漲跌停才通知。"""
+    if z["state"] == "NORMAL":
+        return False
+    b = z["bounds"]
+    lines = [f"⚡ 結算日 {z['date']} {z['time']}：加權 {z['last']:,.2f}（{z['pct']}%）{z['state_label']}",
+             f"今日結算：{', '.join(z['expiring'])}（13:00–13:30 加權指數均價）",
+             f"零風險賣方：Call K > {b['ceiling']:,}、Put K < {b['floor']:,}",
+             f"低風險賣方：{z['low_zone'] or '無'}",
+             "請以即時報價確認買價是否高於手續費＋稅（約 0.4 點）"]
+    if pages_url:
+        lines.append(pages_url)
+    return _send("\n".join(lines))
+
+
 def notify(rep: dict, pages_url: str = "") -> bool:
     token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
     feas = [s for s in rep["signals"] if s["feasible"] and s["riskless"]]
@@ -19,6 +43,4 @@ def notify(rep: dict, pages_url: str = "") -> bool:
         lines.append(f"• {s['type']} {s['expiry']}：{s['legs']}（淨 {s['edge_pts']} 點）")
     if pages_url:
         lines.append(pages_url)
-    r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
-                      data={"chat_id": chat, "text": "\n".join(lines)}, timeout=30)
-    return r.ok
+    return _send("\n".join(lines))

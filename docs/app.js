@@ -26,6 +26,8 @@ async function init() {
   $("#date").value = INDEX.days.some((d) => d.date === want) ? want : INDEX.latest;
   $("#date").onchange = () => loadDay($("#date").value);
   renderHistory();
+  renderExpHist();
+  renderLive();
   await loadDay($("#date").value);
 }
 
@@ -39,6 +41,72 @@ async function loadDay(date) {
   renderFwd();
   renderSeriesSelect();
   renderChain();
+  renderExpiry();
+}
+
+function zoneTable(lst) {
+  if (!lst.length) return `<div class="empty">當日此區無成交</div>`;
+  return `<div class="wrap"><table><tr><th>履約價</th><th>買賣權</th><th>最後成交</th><th>最高</th><th>成交量</th>
+    <th>到期價值</th><th>賣最後價損益(點)</th><th>賣最高價損益(點)</th></tr>` +
+    lst.map((x) => `<tr><td class="n">${fmt(x.k, 0)}</td><td>${x.side === "C" ? "Call" : "Put"}</td>
+      <td class="n">${fmt(x.last)}</td><td class="n">${fmt(x.high)}</td><td class="n">${fmt(x.vol, 0)}</td>
+      <td class="n">${fmt(x.payoff)}</td>
+      <td class="n ${x.pnl_last > 0 ? "yes" : "no"}">${fmt(x.pnl_last, 2)}</td>
+      <td class="n ${x.pnl_high > 0 ? "yes" : "no"}">${fmt(x.pnl_high, 2)}</td></tr>`).join("") + `</table></div>`;
+}
+
+function renderExpiry() {
+  const es = REP.expiry_sell;
+  const box = $("#expiryBox");
+  if (!es) { box.innerHTML = `<div class="banner">${esc(REP.date)} 沒有序列在這天結算。</div>`; return; }
+  if (es.error) { box.innerHTML = `<div class="banner alert">${esc(es.expiring.join("、"))} 結算日：${esc(es.error)}</div>`; return; }
+  const t = es.taiex, b = es.bounds;
+  box.innerHTML = `
+    <div class="cards">
+      <div class="card"><div class="mut">加權指數 · ${esc(es.date)}</div>
+        <div class="big ${esc(es.state)}">${esc(es.state_label)}</div>
+        <div>收 ${fmt(t.close, 2)}　<span class="${t.pct >= 0 ? "up" : "dn"}">${t.pct >= 0 ? "+" : ""}${esc(t.pct)}%</span></div>
+        <div class="mut">前收 ${fmt(t.prev_close, 2)}　高 ${esc(t.high_pct)}%　低 ${esc(t.low_pct)}%</div></div>
+      <div class="card"><div class="mut">結算價必在區間內</div>
+        <div class="big">${fmt(b.floor, 0)} ～ ${fmt(b.ceiling, 0)}</div>
+        <div class="mut">零風險：Call K &gt; ${fmt(b.ceiling, 0)}、Put K &lt; ${fmt(b.floor, 0)}</div></div>
+    </div>` + es.series.map((s) => `
+    <h3>${esc(s.expiry)}　最後結算價 ${fmt(s.final_settle, 2)}${s.settle_approx ? "（以收盤近似）" : ""}</h3>
+    ${(s.warnings || []).map((w) => `<div class="banner alert">⚠️ ${esc(w)}</div>`).join("")}
+    <div class="wrap"><table><tr><th>區域</th><th>有成交履約價</th><th>總成交量</th><th>成交權利金(元)</th>
+      <th>最高價格</th><th>賣出獲利檔數</th><th>虧損檔數</th><th>最佳損益(點)</th></tr>
+      ${[["zero", "零風險"], ["low", "低風險"]].map(([k, n]) => { const x = s.stats[k]; return `<tr><td>${n}</td>
+        <td class="n">${x.strikes}</td><td class="n">${fmt(x.volume, 0)}</td><td class="n">${fmt(x.premium_ntd, 0)}</td>
+        <td class="n">${fmt(x.max_last)}</td><td class="n yes">${x.profitable}</td><td class="n no">${x.losing}</td>
+        <td class="n">${fmt(x.best_pnl, 2)}</td></tr>`; }).join("")}</table></div>
+    <div class="mut" style="margin:8px 0 4px">零風險區明細</div>${zoneTable(s.zones.zero)}
+    <div class="mut" style="margin:8px 0 4px">低風險區明細</div>${zoneTable(s.zones.low)}`).join("");
+}
+
+async function renderLive() {
+  let z;
+  try { z = await getJSON("data/live.json"); } catch (e) { return; }
+  const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+  if (z.date !== today) return;
+  const b = z.bounds;
+  $("#liveBox").innerHTML = `<div class="banner ${z.state !== "NORMAL" ? "alert" : ""}">
+    <b>今日結算 ${esc(z.expiring.join("、"))}</b>｜${esc(z.time)} 加權 ${fmt(z.last, 2)}（${esc(z.pct)}%）${esc(z.state_label)}<br>
+    零風險賣方：Call K &gt; ${fmt(b.ceiling, 0)}、Put K &lt; ${fmt(b.floor, 0)}　低風險：${esc(z.low_zone || "無")}<br>
+    <span class="mut">盤中快照 ${z.snapshots.length} 次；請以即時報價確認買價是否高於成本（約 0.4 點）</span></div>`;
+}
+
+function renderExpHist() {
+  const rows = INDEX.days.filter((d) => d.expiry);
+  $("#expHist").innerHTML = `<tr><th>結算日</th><th>序列</th><th>指數漲跌%</th><th>狀態</th><th>零風險成交量</th>
+    <th>零風險可獲利檔</th><th>低風險成交量</th><th>低風險虧損檔</th><th>最佳損益(點)</th></tr>` +
+    (rows.length ? rows.map((d) => { const e = d.expiry; return `<tr class="click" data-date="${d.date}"><td>${d.date}</td>
+      <td>${esc(e.expiring.join("、"))}</td><td class="n">${esc(e.pct)}</td><td class="${esc(e.state)}">${esc(STATUS[e.state] || e.state)}</td>
+      <td class="n">${fmt(e.zero_volume, 0)}</td><td class="n">${e.zero_profitable}</td><td class="n">${fmt(e.low_volume, 0)}</td>
+      <td class="n">${e.low_losing}</td><td class="n">${fmt(e.best_pnl, 2)}</td></tr>`; }).join("")
+      : `<tr><td colspan="9" class="empty">尚無結算日資料</td></tr>`);
+  document.querySelectorAll("#expHist tr.click").forEach((tr) => tr.onclick = () => {
+    $("#date").value = tr.dataset.date; loadDay(tr.dataset.date);
+  });
 }
 
 function renderSessions() {

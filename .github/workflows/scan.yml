@@ -5,12 +5,16 @@ on:
     - cron: "40 7 * * 1-5"    # 台北 15:40：日盤資料
     - cron: "10 9 * * 1-5"    # 台北 17:10：補抓（期交所延遲更新時）
     - cron: "30 22 * * 1-5"   # 台北隔日 06:30：夜盤資料
+    # 結算日（週三、週五）盤中快照：台北 09:30、11:00、12:15（GitHub 排程可能延遲數分鐘到十幾分鐘）
+    - cron: "30 1 * * 3,5"
+    - cron: "0 3 * * 3,5"
+    - cron: "15 4 * * 3,5"
   workflow_dispatch:
     inputs:
       mode:
-        description: "run＝單日、backfill＝區間回測、rebuild＝用封存重算、deploy＝只部署"
+        description: "run＝單日、backfill＝區間回測、rebuild＝用封存重算、live＝結算日盤中快照、deploy＝只部署"
         type: choice
-        options: [run, backfill, rebuild, deploy]
+        options: [run, backfill, rebuild, live, deploy]
         default: run
       date:
         description: "run 用：YYYY-MM-DD（空白＝台北今天）"
@@ -21,6 +25,10 @@ on:
       end:
         description: "backfill 用：迄日 YYYY-MM-DD"
         default: ""
+      expiry_only:
+        description: "backfill 只跑週三、週五（結算日）"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -47,12 +55,15 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
 
+      - name: 結算日盤中快照
+        if: ${{ (github.event_name == 'schedule' && endsWith(github.event.schedule, '* * 3,5')) || inputs.mode == 'live' }}
+        run: python -m scanner live
       - name: 執行掃描
-        if: ${{ github.event_name == 'schedule' || inputs.mode == 'run' }}
+        if: ${{ (github.event_name == 'schedule' && !endsWith(github.event.schedule, '* * 3,5')) || inputs.mode == 'run' }}
         run: python -m scanner run --date "${{ inputs.date }}"
       - name: 區間回測
         if: ${{ inputs.mode == 'backfill' }}
-        run: python -m scanner backfill --start "${{ inputs.start }}" --end "${{ inputs.end }}"
+        run: python -m scanner backfill --start "${{ inputs.start }}" --end "${{ inputs.end }}" ${{ inputs.expiry_only && '--expiry-only' || '' }}
       - name: 用封存重算
         if: ${{ inputs.mode == 'rebuild' }}
         run: python -m scanner rebuild

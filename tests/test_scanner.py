@@ -105,3 +105,73 @@ def test_series_settled_today_is_excluded():
     assert "202611W2" not in {s["expiry"] for s in rep["series"]}
     assert "202611W2" in {s["expiry"] for s in rep["expired_today"]}
     assert "202611W2" not in {s["expiry"] for s in rep["signals"]}
+
+
+# ---------------------------------------------------------------- 策略二：結算日深價外賣方
+import pandas as pd
+
+
+def _opt_rows(exp, rows):
+    """rows: (K, 'C'/'P', last, high, vol, settle)"""
+    return pd.DataFrame([{"contract": "TXO", "session": "一般", "expiry": exp, "strike": k,
+                          "cp": "買權" if s == "C" else "賣權", "close": last, "high": hi,
+                          "volume": v, "settle": st} for k, s, last, hi, v, st in rows])
+
+
+def test_twse_month_parser():
+    from scanner.twse import parse_month
+    js = {"stat": "OK", "fields": ["日期", "開盤指數", "最高指數", "最低指數", "收盤指數"],
+          "data": [["115/11/09", "40,100.00", "41,500.00", "40,000.00", "41,400.00"],
+                   ["115/11/10", "41,500.00", "42,700.00", "41,450.00", "42,600.00"]]}
+    m = parse_month(js)
+    assert m[dt.date(2026, 11, 10)]["close"] == 42600.0 and len(m) == 2
+
+
+def test_expiry_sell_zero_and_low_zones_on_limit_up_day():
+    from scanner.expiry_sell import analyze_expiry
+    cfg = load_config()
+    prev = 40000.0
+    taiex = {"prev_close": prev, "close": 43900.0, "high": 43950.0, "low": 40100.0,
+             "pct": 9.75, "high_pct": 9.88, "low_pct": 0.25}
+    opt = _opt_rows("202611W2", [
+        (44200, "C", 0.8, 1.5, 120, 0.0),   # > 44000×1.002 → 零風險，賣 0.8 扣成本賺錢
+        (44100, "C", 0.2, 0.3, 50, 0.0),    # 零風險但權利金太低，扣成本虧
+        (44050, "C", 1.0, 1.0, 40, 0.0),    # 未超過含緩衝上限 44088 → 不列入
+        (35800, "P", 0.5, 2.0, 80, 0.0),    # < 36000×0.998 → 零風險
+        (39500, "P", 3.0, 25.0, 300, 0.0),  # 漲停日、K ≤ 前收 → 低風險
+        (43000, "C", 900, 1500, 10, 870.0), # 價內 Call，用來反推最後結算價 43870
+    ])
+    es = analyze_expiry(dt.date(2026, 11, 11), opt, {"202611W2": dt.date(2026, 11, 11)}, taiex, cfg)
+    assert es["state"] == "LIMIT_UP"
+    assert es["bounds"]["ceiling"] == 44088 and es["bounds"]["floor"] == 35928
+    s = es["series"][0]
+    assert s["final_settle"] == 43870.0 and s["warnings"] == []
+    zero = {(x["k"], x["side"]): x for x in s["zones"]["zero"]}
+    assert set(zero) == {(44200, "C"), (44100, "C"), (35800, "P")}
+    assert zero[(44200, "C")]["pnl_last"] > 0
+    assert zero[(44100, "C")]["pnl_last"] < 0              # 0.2 點不夠付 0.4 點手續費
+    low = s["zones"]["low"]
+    assert [(x["k"], x["side"]) for x in low] == [(39500, "P")] and low[0]["payoff"] == 0
+
+
+def test_no_low_zone_on_normal_day_and_live_codes():
+    from scanner.expiry_sell import analyze_expiry
+    from scanner.__main__ import expiring_codes
+    taiex = {"prev_close": 40000.0, "close": 40400.0, "high": 40500.0, "low": 39900.0,
+             "pct": 1.0, "high_pct": 1.25, "low_pct": -0.25}
+    opt = _opt_rows("202611F2", [(39500, "P", 3.0, 5.0, 300, 0.0)])
+    es = analyze_expiry(dt.date(2026, 11, 13), opt, {"202611F2": dt.date(2026, 11, 13)}, taiex, load_config())
+    assert es["state"] == "NORMAL" and es["series"][0]["zones"]["low"] == []
+    assert expiring_codes(dt.date(2026, 11, 11)) == ["202611W2"]
+    assert expiring_codes(dt.date(2026, 11, 18)) == ["202611"]
+    assert expiring_codes(dt.date(2026, 11, 13)) == ["202611F2"]
+    assert expiring_codes(dt.date(2026, 11, 12)) == []
+
+
+def test_expiry_sell_flags_settlement_outside_bounds():
+    from scanner.expiry_sell import analyze_expiry
+    taiex = {"prev_close": 38800.0, "close": 42620.0, "high": 42650.0, "low": 39400.0,
+             "pct": 9.85, "high_pct": 9.92, "low_pct": 1.55}
+    opt = _opt_rows("202611W2", [(43000, "C", 700, 800, 10, 680.0)])   # 反推 43680 > 38800×1.1
+    es = analyze_expiry(dt.date(2026, 11, 11), opt, {"202611W2": dt.date(2026, 11, 11)}, taiex, load_config())
+    assert any("超出理論區間" in w for w in es["series"][0]["warnings"])

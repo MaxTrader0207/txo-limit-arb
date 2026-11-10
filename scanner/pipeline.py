@@ -5,14 +5,15 @@ import datetime as dt
 import json
 from pathlib import Path
 
-from . import taifex
+from . import taifex, twse
+from .expiry_sell import analyze_expiry
 from .checks import scan_chain
 from .config import TPE
 from .market import (LIMIT_EVENTS, build_chains, expiry_dates, front_futures, hedge_for, implied_forward,
                      limit_status, tx_contracts, tx_settle_date)
 
 
-def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False) -> dict:
+def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex: dict | None = None) -> dict:
     exp_dates = expiry_dates(opt)
 
     # 每個時段、每口 TX 月契約：狀態 + 實際結算日
@@ -61,6 +62,7 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False) -> di
         "limit_event": any(s["status"] in LIMIT_EVENTS for s in sessions.values())
                        or any(st in LIMIT_EVENTS for _, st in used),
         "sessions": sessions, "series": series, "signals": signals, "expired_today": expired,
+        "expiry_sell": analyze_expiry(date, opt, exp_dates, taiex, cfg),
         "settle_rule": "TX 與 TXO（月選、週三 W1/W2/W4/W5、週五 F）最後結算價皆為到期日 13:00–13:30 加權指數簡單算術平均",
         "config": {k: v for k, v in cfg.items()},
     }
@@ -76,7 +78,20 @@ def summary(rep: dict) -> dict:
         "n_signals": len(rep["signals"]), "n_feasible": len(feas),
         "n_basis": sum(1 for s in rep["signals"] if not s["riskless"]),
         "best": {k: best[k] for k in ("type", "expiry", "edge_pts", "legs")} if best else None,
+        "expiry": expiry_summary(rep.get("expiry_sell")),
     }
+
+
+def expiry_summary(es: dict | None) -> dict | None:
+    if not es or "state" not in es:
+        return None
+    z = lambda key, f: sum(s["stats"][key][f] or 0 for s in es["series"])
+    best = [s["stats"][k]["best_pnl"] for s in es["series"] for k in ("zero", "low")
+            if s["stats"][k]["best_pnl"] is not None]
+    return {"expiring": es["expiring"], "state": es["state"], "pct": es["taiex"]["pct"],
+            "zero_volume": z("zero", "volume"), "zero_profitable": z("zero", "profitable"),
+            "low_volume": z("low", "volume"), "low_losing": z("low", "losing"),
+            "best_pnl": max(best, default=None)}
 
 
 def write(rep: dict, data_dir: Path) -> None:
@@ -100,8 +115,12 @@ def run_date(date: dt.date, cfg: dict, data_dir: Path, archive_dir: Path,
     except taifex.NoData as e:
         print(f"[略過] {e}")
         return None
-    rep = analyze(date, fut, opt, cfg, all_strikes)
-    if not rep["series"]:
+    taiex = None
+    if any(d == date for d in expiry_dates(opt).values()):
+        taiex = twse.day_info(date, archive_dir, "refresh" if mode == "refresh" else
+                              ("offline" if mode == "offline" else "cache"))
+    rep = analyze(date, fut, opt, cfg, all_strikes, taiex)
+    if not rep["series"] and not rep["expiry_sell"]:
         print(f"[略過] {date} 沒有可分析的週選序列")
         return None
     write(rep, data_dir)
