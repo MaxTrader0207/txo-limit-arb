@@ -1,1 +1,1 @@
-{"updated":"2026-11-10T23:09:20+08:00","latest":"2026-11-10","days":[{"date":"2026-11-10","limit_event":false,"status":{"一般":"NORMAL"},"pct":{"一般":2.51},"n_signals":0,"n_feasible":0,"best":null}]}
+{"updated":"2026-11-10T23:17:28+08:00","latest":"2026-11-10","days":[{"date":"2026-11-10","limit_event":false,"status":{"一般":"NORMAL","盤後":"NORMAL"},"pct":{"一般":2.76,"盤後":2.57},"n_signals":30,"n_feasible":30,"best":{"type":"Reversal","expiry":"202611F2","edge_pts":109.54,"legs":"賣小台@42623、賣P42650@725、買C42650@585"}}]}
