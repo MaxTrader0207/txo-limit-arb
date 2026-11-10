@@ -186,3 +186,55 @@ def test_header_only_csv_is_holiday(tmp_path, monkeypatch):
     (arc / "20261009_TX.csv.gz").write_bytes(gzip.compress(header.encode()))
     with pytest.raises(taifex.NoData):
         taifex.load(dt.date(2026, 10, 9), tmp_path, "cache")
+
+
+# ---------------------------------------------------------------- 小台週契約、保證金、盤中極值
+def _with_mtx(fut):
+    """在 11/10 原始 TX 資料上加入小台月＋週契約（價格借用 TX 近月）。"""
+    tx = fut[(fut["contract"] == "TX") & (fut["expiry"] == "202611")]
+    rows = []
+    for code in ("202611W2", "202611", "202611W4", "202612"):
+        r = tx.copy()
+        r["contract"], r["expiry"] = "MTX", code
+        rows.append(r)
+    return pd.concat([fut, *rows], ignore_index=True)
+
+
+def test_wednesday_weekly_hedged_by_same_day_mtx_weekly():
+    fut, opt = load("taifex_20261110")
+    rep = analyze(dt.date(2026, 11, 10), _with_mtx(fut), opt, load_config())
+    m = {s["expiry"]: s for s in rep["series"] if s["session"] == "一般"}
+    assert (m["202611W2"]["hedge"], m["202611W2"]["matched"]) == ("202611W2", True)    # 週三週選 ↔ 小台週契約
+    assert (m["202611"]["hedge"], m["202611"]["matched"]) == ("202611", True)
+    assert (m["202611F2"]["hedge"], m["202611F2"]["basis_days"]) == ("202611", 5)       # 週五週選仍無同日期貨
+    assert (m["202611F3"]["hedge"], m["202611F3"]["basis_days"]) == ("202611W4", 5)     # 改對 11/25 小台週契約
+    assert all(s["hedge_product"] == "MTX" for s in rep["series"])
+
+
+def test_margin_formulas():
+    from scanner import margin as mg
+    cfg = load_config()
+    assert mg.short_opt("C", 50000, 42000, cfg) == cfg["txo_b"]                  # 深價外 → B 值
+    assert mg.short_opt("P", 42000, 42000, cfg) == cfg["txo_a"]                  # 價平 → A 值
+    assert mg.credit_spread(100, 30, cfg) == 3500
+    r = mg.returns(500, 100000, 5)
+    assert r["per_10k"] == 50.0 and r["annual_pct"] == 36.5
+    assert mg.returns(500, 0, 5)["per_10k"] is None
+
+
+def test_intraday_extremes_trigger():
+    from scanner.expiry_sell import extreme_sides, index_state
+    from scanner.market import limit_status
+    cfg = load_config()
+    info = {"pct": -4.51, "high_pct": -2.74, "low_pct": -8.99}                  # 2026/11/6 實際走勢
+    assert index_state(info, cfg)[0] == "INTRA_NEAR_DOWN"
+    assert extreme_sides(info, cfg) == (False, True)
+    row = {"expiry": "202611", "close": 40500, "chg": 500, "high": 43000, "low": 39900}
+    assert limit_status(row, cfg)["status"] == "INTRA_NEAR_UP"                 # 前結算 40000，盤中 +7.5%
+
+
+def test_signals_carry_capital():
+    fut, opt = load("synthetic_limitup")
+    rep = analyze(dt.date(2026, 11, 10), fut, opt, load_config())
+    fly = [s for s in rep["signals"] if "蝴蝶" in s["type"]]
+    assert fly and all("capital_ntd" in s and s["hold_days"] >= 1 for s in fly)

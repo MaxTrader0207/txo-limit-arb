@@ -12,7 +12,7 @@ select,button{background:var(--card);color:var(--fg);border:1px solid var(--line
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px}
 .big{font-size:22px;font-weight:700}
-.LIMIT_UP,.TOUCHED_UP,.NEAR_UP,.up{color:var(--up)}.LIMIT_DOWN,.TOUCHED_DOWN,.NEAR_DOWN,.dn{color:var(--dn)}
+.LIMIT_UP,.TOUCHED_UP,.NEAR_UP,.INTRA_NEAR_UP,.up{color:var(--up)}.LIMIT_DOWN,.TOUCHED_DOWN,.NEAR_DOWN,.INTRA_NEAR_DOWN,.dn{color:var(--dn)}
 .tabs{display:flex;gap:6px;margin:18px 0 10px;border-bottom:1px solid var(--line)}
 .tabs button{border:none;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--mut);padding:8px 10px;cursor:pointer}
 .tabs button.on{color:var(--fg);border-color:var(--acc)}

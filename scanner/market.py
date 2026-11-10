@@ -26,6 +26,12 @@ def tx_contracts(fut: pd.DataFrame) -> pd.DataFrame:
     return fut[(fut["contract"] == "TX") & fut["expiry"].str.fullmatch(r"\d{6}")].sort_values("expiry")
 
 
+def hedge_contracts(fut: pd.DataFrame) -> pd.DataFrame:
+    """對沖用期貨：小台 MTX（月契約＋週三週契約，每點 50 元與 TXO 1:1）；沒有 MTX 資料時退回 TX 月契約。"""
+    mtx = fut[(fut["contract"] == "MTX") & fut["expiry"].str.fullmatch(r"\d{6}(W\d)?")]
+    return mtx.sort_values("expiry") if len(mtx) else tx_contracts(fut)
+
+
 def front_futures(fut: pd.DataFrame) -> dict:
     """各交易時段的近月 TX。"""
     return {sess: g.iloc[0] for sess, g in tx_contracts(fut).groupby("session")}
@@ -71,9 +77,12 @@ def expiry_dates(opt: pd.DataFrame) -> dict:
     return out
 
 
-def tx_settle_date(month: str, exp_dates: dict) -> dt.date:
-    """TX 月契約與同月 TXO 月選同日結算（含假日順延）；查不到才用第三個週三推算。"""
-    return exp_dates.get(month) or third_wednesday(month)
+def fut_settle_date(code: str, exp_dates: dict) -> dt.date:
+    """期貨契約結算日：月契約與同月月選、小台週契約與同代碼週選同日結算（含假日順延）；查不到才由代碼推算。"""
+    return exp_dates.get(code) or code_to_date(code)
+
+
+tx_settle_date = fut_settle_date   # 舊名相容
 
 
 def hedge_for(opt_settle: dt.date, futs: list[dict]) -> dict | None:
@@ -85,6 +94,7 @@ def hedge_for(opt_settle: dt.date, futs: list[dict]) -> dict | None:
 STATUS_LABEL = {
     "LIMIT_UP": "漲停鎖住", "LIMIT_DOWN": "跌停鎖住", "TOUCHED_UP": "盤中觸及漲停",
     "TOUCHED_DOWN": "盤中觸及跌停", "NEAR_UP": "接近漲停", "NEAR_DOWN": "接近跌停",
+    "INTRA_NEAR_UP": "盤中接近漲停", "INTRA_NEAR_DOWN": "盤中接近跌停",
     "NORMAL": "正常", "UNKNOWN": "資料不足",
 }
 LIMIT_EVENTS = {"LIMIT_UP", "LIMIT_DOWN", "TOUCHED_UP", "TOUCHED_DOWN"}
@@ -114,6 +124,10 @@ def limit_status(row, cfg) -> dict:
         s = "NEAR_UP"
     elif pct <= -cfg["near_limit_pct"]:
         s = "NEAR_DOWN"
+    elif hi is not None and prev and hi / prev - 1 >= cfg["near_limit_pct"]:
+        s = "INTRA_NEAR_UP"                  # 收盤回落，但盤中曾接近漲停
+    elif lo is not None and prev and lo / prev - 1 <= -cfg["near_limit_pct"]:
+        s = "INTRA_NEAR_DOWN"
     else:
         s = "NORMAL"
     return {**res, "status": s, "label": STATUS_LABEL[s], "prev_settle": prev,

@@ -3,6 +3,7 @@ const $ = (s) => document.querySelector(s);
 const esc = (x) => String(x ?? "-").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const fmt = (x, d = 1) => (x === null || x === undefined ? "-" : Number(x).toLocaleString("zh-TW", { maximumFractionDigits: d }));
 const STATUS = { LIMIT_UP: "漲停鎖住", LIMIT_DOWN: "跌停鎖住", TOUCHED_UP: "觸及漲停", TOUCHED_DOWN: "觸及跌停",
+  INTRA_NEAR_UP: "盤中接近漲停", INTRA_NEAR_DOWN: "盤中接近跌停",
   NEAR_UP: "接近漲停", NEAR_DOWN: "接近跌停", NORMAL: "正常", UNKNOWN: "資料不足" };
 
 let INDEX = null, REP = null;
@@ -47,12 +48,13 @@ async function loadDay(date) {
 function zoneTable(lst) {
   if (!lst.length) return `<div class="empty">當日此區無成交</div>`;
   return `<div class="wrap"><table><tr><th>履約價</th><th>買賣權</th><th>最後成交</th><th>最高</th><th>成交量</th>
-    <th>到期價值</th><th>賣最後價損益(點)</th><th>賣最高價損益(點)</th></tr>` +
+    <th>到期價值</th><th>賣最後價損益(點)</th><th>賣最高價損益(點)</th><th>保證金(元)</th><th>每萬元賺(元)</th></tr>` +
     lst.map((x) => `<tr><td class="n">${fmt(x.k, 0)}</td><td>${x.side === "C" ? "Call" : "Put"}</td>
       <td class="n">${fmt(x.last)}</td><td class="n">${fmt(x.high)}</td><td class="n">${fmt(x.vol, 0)}</td>
       <td class="n">${fmt(x.payoff)}</td>
       <td class="n ${x.pnl_last > 0 ? "yes" : "no"}">${fmt(x.pnl_last, 2)}</td>
-      <td class="n ${x.pnl_high > 0 ? "yes" : "no"}">${fmt(x.pnl_high, 2)}</td></tr>`).join("") + `</table></div>`;
+      <td class="n ${x.pnl_high > 0 ? "yes" : "no"}">${fmt(x.pnl_high, 2)}</td>
+      <td class="n">${fmt(x.margin, 0)}</td><td class="n ${x.per_10k > 0 ? "yes" : "no"}">${fmt(x.per_10k, 2)}</td></tr>`).join("") + `</table></div>`;
 }
 
 function renderExpiry() {
@@ -74,11 +76,11 @@ function renderExpiry() {
     <h3>${esc(s.expiry)}　最後結算價 ${fmt(s.final_settle, 2)}${s.settle_approx ? "（以收盤近似）" : ""}</h3>
     ${(s.warnings || []).map((w) => `<div class="banner alert">⚠️ ${esc(w)}</div>`).join("")}
     <div class="wrap"><table><tr><th>區域</th><th>有成交履約價</th><th>總成交量</th><th>成交權利金(元)</th>
-      <th>最高價格</th><th>賣出獲利檔數</th><th>虧損檔數</th><th>最佳損益(點)</th></tr>
+      <th>最高價格</th><th>賣出獲利檔數</th><th>虧損檔數</th><th>最佳損益(點)</th><th>最佳每萬元賺(元)</th></tr>
       ${[["zero", "零風險"], ["low", "低風險"]].map(([k, n]) => { const x = s.stats[k]; return `<tr><td>${n}</td>
         <td class="n">${x.strikes}</td><td class="n">${fmt(x.volume, 0)}</td><td class="n">${fmt(x.premium_ntd, 0)}</td>
         <td class="n">${fmt(x.max_last)}</td><td class="n yes">${x.profitable}</td><td class="n no">${x.losing}</td>
-        <td class="n">${fmt(x.best_pnl, 2)}</td></tr>`; }).join("")}</table></div>
+        <td class="n">${fmt(x.best_pnl, 2)}</td><td class="n">${fmt(x.best_per_10k, 2)}</td></tr>`; }).join("")}</table></div>
     <div class="mut" style="margin:8px 0 4px">零風險區明細</div>${zoneTable(s.zones.zero)}
     <div class="mut" style="margin:8px 0 4px">低風險區明細</div>${zoneTable(s.zones.low)}`).join("");
 }
@@ -91,7 +93,9 @@ async function renderLive() {
   const b = z.bounds;
   $("#liveBox").innerHTML = `<div class="banner ${z.state !== "NORMAL" ? "alert" : ""}">
     <b>今日結算 ${esc(z.expiring.join("、"))}</b>｜${esc(z.time)} 加權 ${fmt(z.last, 2)}（${esc(z.pct)}%）${esc(z.state_label)}<br>
+    盤中高 ${esc(z.high_pct ?? "-")}%／低 ${esc(z.low_pct ?? "-")}%　來源 ${esc(z.source || "-")}<br>
     零風險賣方：Call K &gt; ${fmt(b.ceiling, 0)}、Put K &lt; ${fmt(b.floor, 0)}　低風險：${esc(z.low_zone || "無")}<br>
+    <span class="mut">${esc(z.margin_note || "")}</span><br>
     <span class="mut">盤中快照 ${z.snapshots.length} 次；請以即時報價確認買價是否高於成本（約 0.4 點）</span></div>`;
 }
 
@@ -136,13 +140,16 @@ function renderSignals() {
     (basis || riskless(s)) && (!type || s.type === type));
   const hidden = REP.signals.filter((s) => !riskless(s)).length;
   $("#sigTable").innerHTML = `<tr><th>類型</th><th>性質</th><th>週別</th><th>時段</th><th>組合</th><th>淨利(點)</th><th>淨利(元)</th>
-    <th>成本(點)</th><th>可否成交</th><th>深價外</th><th>備註</th></tr>` +
+    <th>成本(點)</th><th>所需資金(元)</th><th>每萬元賺(元)</th><th>年化%</th><th>持有天數</th><th>可否成交</th><th>深價外</th><th>備註</th></tr>` +
     (rows.length ? rows.map((s) => `<tr class="click" data-exp="${esc(s.expiry)}" data-sess="${esc(s.session)}">
       <td>${esc(s.type)}</td><td class="${riskless(s) ? "yes" : "no"}">${riskless(s) ? "套利" : "基差"}</td><td>${esc(s.expiry)}</td><td>${esc(s.session)}</td><td>${esc(s.legs)}</td>
       <td class="n">${fmt(s.edge_pts, 2)}</td><td class="n">${fmt(s.edge_ntd, 0)}</td><td class="n">${fmt(s.cost_pts, 2)}</td>
+      <td class="n">${s.capital_ntd === undefined ? "-" : fmt(s.capital_ntd, 0)}</td>
+      <td class="n">${s.per_10k === null && s.capital_ntd !== undefined ? "免資金" : fmt(s.per_10k, 1)}</td>
+      <td class="n">${fmt(s.annual_pct, 1)}</td><td class="n">${fmt(s.hold_days, 0)}</td>
       <td class="${s.feasible ? "yes" : "no"}">${s.feasible ? "可" : "需排隊"}</td><td>${s.deep_otm ? "★" : ""}</td>
       <td class="mut">${esc(s.note)}</td></tr>`).join("")
-      : `<tr><td colspan="11" class="empty">扣除成本後無符合條件的訊號${!basis && hidden ? `（另有 ${hidden} 筆基差交易，勾選「含基差交易」可看）` : ""}</td></tr>`);
+      : `<tr><td colspan="15" class="empty">扣除成本後無符合條件的訊號${!basis && hidden ? `（另有 ${hidden} 筆基差交易，勾選「含基差交易」可看）` : ""}</td></tr>`);
   document.querySelectorAll("#sigTable tr.click").forEach((tr) => tr.onclick = () => {
     $("#series").value = tr.dataset.exp + "|" + tr.dataset.sess;
     switchTab("chain"); renderChain();
@@ -154,10 +161,10 @@ function renderFwd() {
   $("#fwdTable").innerHTML = `<tr><th>序列</th><th>時段</th><th>結算日</th><th>對應期貨</th><th>期貨結算</th><th>對沖</th>
     <th>期貨狀態</th><th>期貨價</th><th>隱含價</th><th>差距</th><th>履約價數</th></tr>` +
     REP.series.map((r) => `<tr><td>${esc(r.expiry)}</td><td>${esc(r.session)}</td><td>${md(r.opt_settle)}</td>
-      <td>TX ${esc(r.hedge)}</td><td>${md(r.hedge_settle)}</td>
+      <td>${esc(r.hedge_product || "TX")} ${esc(r.hedge)}</td><td>${md(r.hedge_settle)}</td>
       <td class="${r.matched ? "yes" : "no"}">${r.matched ? "同日結算" : `差 ${r.basis_days} 天`}</td>
       <td class="${esc(r.status)}">${esc(r.status_label)}</td><td class="n">${fmt(r.futures, 0)}</td>
-      <td class="n">${fmt(r.implied_fwd)}</td><td class="n">${fmt(r.gap)}</td><td class="n">${r.chain.length}</td></tr>`).join("") +
+      <td class="n">${fmt(r.implied_fwd)}</td><td class="n">${fmt(r.gap)}</td><td class="n">${r.chain_pruned ? "-" : r.chain.length}</td></tr>`).join("") +
     (REP.expired_today || []).map((r) => `<tr class="mut"><td>${esc(r.expiry)}</td><td>${esc(r.session)}</td><td>${md(r.opt_settle)}</td>
       <td colspan="8">今日 13:30 已結算，不列入掃描</td></tr>`).join("");
   $("#settleRule").textContent = REP.settle_rule ? "結算規則：" + REP.settle_rule + "。結算標的是加權指數，不是期貨。" : "";
@@ -170,6 +177,10 @@ function renderSeriesSelect() {
 function renderChain() {
   const [exp, sess] = ($("#series").value || "").split("|");
   const s = REP.series.find((x) => x.expiry === exp && x.session === sess);
+  if (s && s.chain_pruned) {
+    $("#chainTable").innerHTML = `<tr><td class="empty">較舊交易日只保留摘要與訊號；完整選擇權鏈可用 workflow 的 rebuild 從封存重算。</td></tr>`;
+    return;
+  }
   if (!s) { $("#chainTable").innerHTML = `<tr><td class="empty">無資料</td></tr>`; return; }
   const F = s.implied_fwd || s.futures, p = REP.config.deep_otm_pct;
   const hits = new Set(REP.signals.filter((x) => x.expiry === exp && x.session === sess).flatMap((x) => x.strikes));

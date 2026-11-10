@@ -30,7 +30,7 @@ class NoData(LookupError):
 
 
 def download(kind: str, date: dt.date, retries: int = 3) -> str:
-    url, cid = (FUT_URL, "TX") if kind == "TX" else (OPT_URL, "TXO")
+    url, cid = (OPT_URL, "TXO") if kind == "TXO" else (FUT_URL, kind)   # kind：TX、MTX、TXO
     d = date.strftime("%Y/%m/%d")
     form = {"down_type": "1", "commodity_id": cid, "commodity_id2": "",
             "queryStartDate": d, "queryEndDate": d}
@@ -91,9 +91,10 @@ def archive(text: str, archive_dir: Path, date: dt.date, kind: str) -> Path:
 
 
 def load(date: dt.date, archive_dir: Path, mode: str = "refresh") -> tuple[pd.DataFrame, pd.DataFrame]:
-    """mode：refresh＝一律重新下載並覆寫封存（每日排程用，夜盤後日盤資料會增加）
-             cache  ＝有封存就用封存（回測用）
-             offline＝只讀封存"""
+    """回傳 (期貨, 選擇權)。期貨＝TX 加上 MTX（小台，含週到期契約；取不到時只有 TX）。
+    mode：refresh＝一律重新下載並覆寫封存（每日排程用，夜盤後日盤資料會增加）
+          cache  ＝有封存就用封存（回測用）
+          offline＝只讀封存"""
     offline = mode == "offline"
     out = []
     for kind in ("TX", "TXO"):
@@ -108,4 +109,23 @@ def load(date: dt.date, archive_dir: Path, mode: str = "refresh") -> tuple[pd.Da
             text = download(kind, date)
             archive(text, archive_dir, date, kind)
         out.append(parse(text))
-    return out[0], out[1]
+    fut, opt = out
+    mtx = _load_optional("MTX", date, archive_dir, mode)
+    if mtx is not None and len(mtx):
+        fut = pd.concat([fut, mtx], ignore_index=True)
+    return fut, opt
+
+
+def _load_optional(kind: str, date: dt.date, archive_dir: Path, mode: str) -> pd.DataFrame | None:
+    p = archive_dir / date.strftime("%Y") / f"{date:%Y%m%d}_{kind}.csv.gz"
+    try:
+        if p.exists() and mode != "refresh":
+            return parse(read_text(p))
+        if mode == "offline":
+            return None
+        text = download(kind, date)
+        archive(text, archive_dir, date, kind)
+        return parse(text)
+    except (NoData, RuntimeError, ValueError) as e:
+        print(f"  [警告] {kind} 取不到，改用 TX 對沖：{e}")
+        return None

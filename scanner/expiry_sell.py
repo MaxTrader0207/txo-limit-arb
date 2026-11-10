@@ -17,27 +17,32 @@ from __future__ import annotations
 
 import math
 
+from . import margin as mg
 from .checks import opt_cost
 from .market import num
 
 
 def index_state(info: dict, cfg: dict) -> tuple[str, str]:
-    """以加權指數收盤（或盤中高低）漲跌幅判斷漲跌停狀態。指數實際上限略低於 10%，門檻可調。"""
+    """以加權指數收盤與盤中高低點判斷漲跌停狀態。指數實際上限略低於 10%，門檻可調。"""
     lim, near = cfg["index_limit_pct"] * 100, cfg["index_near_pct"] * 100
     pct, hp, lp = info.get("pct") or 0, info.get("high_pct") or 0, info.get("low_pct") or 0
-    if pct >= lim:
-        return "LIMIT_UP", "指數漲停"
-    if pct <= -lim:
-        return "LIMIT_DOWN", "指數跌停"
-    if hp >= lim:
-        return "TOUCHED_UP", "盤中觸及漲停"
-    if lp <= -lim:
-        return "TOUCHED_DOWN", "盤中觸及跌停"
-    if pct >= near:
-        return "NEAR_UP", "接近漲停"
-    if pct <= -near:
-        return "NEAR_DOWN", "接近跌停"
+    for cond, st, lab in (
+        (pct >= lim, "LIMIT_UP", "指數漲停"), (pct <= -lim, "LIMIT_DOWN", "指數跌停"),
+        (hp >= lim, "TOUCHED_UP", "盤中觸及漲停"), (lp <= -lim, "TOUCHED_DOWN", "盤中觸及跌停"),
+        (pct >= near, "NEAR_UP", "接近漲停"), (pct <= -near, "NEAR_DOWN", "接近跌停"),
+        (hp >= near, "INTRA_NEAR_UP", "盤中接近漲停"), (lp <= -near, "INTRA_NEAR_DOWN", "盤中接近跌停"),
+    ):
+        if cond:
+            return st, lab
     return "NORMAL", "正常"
+
+
+def extreme_sides(info: dict, cfg: dict) -> tuple[bool, bool]:
+    """當天（含盤中）是否曾大漲／大跌到門檻：用來決定低風險區，盤中觸及就算，兩邊可同時成立。"""
+    near = cfg["index_near_pct"] * 100
+    up = max(info.get("pct") or 0, info.get("high_pct") or 0) >= near
+    dn = min(info.get("pct") or 0, info.get("low_pct") or 0) <= -near
+    return up, dn
 
 
 def bounds(prev_close: float, cfg: dict) -> dict:
@@ -68,8 +73,9 @@ def analyze_expiry(date, opt, exp_dates: dict, taiex: dict | None, cfg: dict) ->
     bd = bounds(taiex["prev_close"], cfg)
     out.update(state=state, state_label=label, bounds=bd)
     prev = taiex["prev_close"]
-    up_day = state in ("LIMIT_UP", "TOUCHED_UP", "NEAR_UP")
-    dn_day = state in ("LIMIT_DOWN", "TOUCHED_DOWN", "NEAR_DOWN")
+    up_day, dn_day = extreme_sides(taiex, cfg)
+    out.update(up_side=up_day, down_side=dn_day)
+    ref = taiex.get("close") or prev       # 計算價外值（保證金）用
 
     o = opt[(opt["contract"] == "TXO") & (opt["session"] == "一般")]
     for exp in expiring:
@@ -99,10 +105,13 @@ def analyze_expiry(date, opt, exp_dates: dict, taiex: dict | None, cfg: dict) ->
             payoff = None
             if S is not None:
                 payoff = max(0.0, S - x["k"]) if x["side"] == "C" else max(0.0, x["k"] - S)
-            item = {**x, "payoff": payoff}
+            item = {**x, "payoff": payoff, "margin": round(mg.short_opt(x["side"], x["k"], ref, cfg))}
             for tag, px in (("pnl_last", x["last"]), ("pnl_high", x["high"])):
                 item[tag] = (round(px - payoff - opt_cost(px, cfg), 2)
                              if px is not None and payoff is not None else None)
+            # 每萬元保證金報酬（以最後成交價賣出、持有到當日結算）
+            item["per_10k"] = (round(item["pnl_last"] * cfg["point_value"] / item["margin"] * 10000, 2)
+                               if item["pnl_last"] is not None else None)
             zones["zero" if zero else "low"].append(item)
         stats = {}
         for z, lst in zones.items():
@@ -113,6 +122,7 @@ def analyze_expiry(date, opt, exp_dates: dict, taiex: dict | None, cfg: dict) ->
                 "max_last": max((x["last"] or 0 for x in lst), default=0),
                 "profitable": sum(1 for p in pnl if p > 0), "losing": sum(1 for p in pnl if p < 0),
                 "best_pnl": max(pnl, default=None), "worst_pnl": min(pnl, default=None),
+                "best_per_10k": max((x["per_10k"] for x in lst if x["per_10k"] is not None), default=None),
             }
         for lst in zones.values():
             lst.sort(key=lambda x: -(x["last"] or 0))
@@ -122,10 +132,14 @@ def analyze_expiry(date, opt, exp_dates: dict, taiex: dict | None, cfg: dict) ->
 
 
 def live_zones(rt: dict, expiring: list[str], cfg: dict) -> dict:
-    """盤中：依即時加權指數給出零風險／低風險可賣的履約價界線。"""
-    info = {"pct": rt["pct"], "high_pct": rt["pct"], "low_pct": rt["pct"]}
+    """盤中：依即時加權指數（含當日盤中高低）給出零風險／低風險可賣的履約價界線。"""
+    pc = rt["prev_close"]
+    pct = lambda x: (x / pc - 1) * 100 if x and pc else rt["pct"]
+    info = {"pct": rt["pct"], "high_pct": pct(rt.get("high")), "low_pct": pct(rt.get("low"))}
     state, label = index_state(info, cfg)
-    bd = bounds(rt["prev_close"], cfg)
-    return {**rt, "expiring": expiring, "state": state, "state_label": label, "bounds": bd,
-            "low_zone": ("Put 履約價 ≤ " + f"{rt['prev_close']:,.0f}") if state.endswith("UP") and state != "NORMAL"
-            else ("Call 履約價 ≥ " + f"{rt['prev_close']:,.0f}") if state.endswith("DOWN") else None}
+    up, dn = extreme_sides(info, cfg)
+    zones = ([f"Put 履約價 ≤ {pc:,.0f}"] if up else []) + ([f"Call 履約價 ≥ {pc:,.0f}"] if dn else [])
+    return {**rt, "expiring": expiring, "state": state, "state_label": label, "bounds": bounds(pc, cfg),
+            "high_pct": round(info["high_pct"], 2), "low_pct": round(info["low_pct"], 2),
+            "low_zone": "、".join(zones) or None,
+            "margin_note": f"深價外賣方每口約需 {cfg['txo_b']:,.0f} 元保證金（B 值，{cfg['margin_updated']}）"}
