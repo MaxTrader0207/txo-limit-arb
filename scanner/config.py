@@ -19,7 +19,7 @@ DEFAULTS = {
     "slippage_pts": 0.0,      # 每腳額外滑價（點）
     "min_edge": 1.0,          # 扣成本後至少幾點才列為訊號
     "top_n": 10,              # 每種訊號、每個序列最多保留幾筆
-    "include_monthly": False, # 是否一併掃最近月選
+    "include_monthly": True,  # 一併掃最近月選（唯一與 TX 同日結算的序列）
 }
 
 

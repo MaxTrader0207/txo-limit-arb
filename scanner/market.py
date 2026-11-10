@@ -1,6 +1,7 @@
 """期貨狀態判斷、選擇權鏈整理。"""
 from __future__ import annotations
 
+import datetime as dt
 import math
 import re
 
@@ -20,10 +21,65 @@ def ok(x) -> bool:
 
 
 # ------------------------------------------------------------------ 期貨
+def tx_contracts(fut: pd.DataFrame) -> pd.DataFrame:
+    """所有 TX 單式月契約（排除價差契約）。"""
+    return fut[(fut["contract"] == "TX") & fut["expiry"].str.fullmatch(r"\d{6}")].sort_values("expiry")
+
+
 def front_futures(fut: pd.DataFrame) -> dict:
-    """各交易時段的近月 TX（排除價差契約）。"""
-    tx = fut[(fut["contract"] == "TX") & fut["expiry"].str.fullmatch(r"\d{6}")]
-    return {sess: g.sort_values("expiry").iloc[0] for sess, g in tx.groupby("session")}
+    """各交易時段的近月 TX。"""
+    return {sess: g.iloc[0] for sess, g in tx_contracts(fut).groupby("session")}
+
+
+def third_wednesday(ym: str) -> dt.date:
+    d = dt.date(int(ym[:4]), int(ym[4:6]), 15)
+    return d + dt.timedelta(days=(2 - d.weekday()) % 7)
+
+
+def parse_ymd(s) -> dt.date | None:
+    s = str(s or "").strip()
+    return dt.datetime.strptime(s, "%Y%m%d").date() if re.fullmatch(r"\d{8}", s) else None
+
+
+def nth_weekday(ym: str, weekday: int, n: int) -> dt.date:
+    d = dt.date(int(ym[:4]), int(ym[4:6]), 1)
+    return d + dt.timedelta(days=(weekday - d.weekday()) % 7 + 7 * (n - 1))
+
+
+def code_to_date(exp: str) -> dt.date | None:
+    """後備：由代碼推算（未考慮假日順延）。202611→第3個週三、202611W2→第2個週三、202611F2→第2個週五。"""
+    m = re.fullmatch(r"(\d{6})(?:([WF])(\d))?", str(exp))
+    if not m:
+        return None
+    ym, kind, n = m.groups()
+    if not kind:
+        return third_wednesday(ym)
+    return nth_weekday(ym, 2 if kind == "W" else 4, int(n))
+
+
+def expiry_dates(opt: pd.DataFrame) -> dict:
+    """{到期別: 結算日}。優先用 TXO 的「契約到期日」欄（含假日順延），沒有才由代碼推算。"""
+    out = {}
+    o = opt[opt["contract"] == "TXO"]
+    for exp, g in o.groupby("expiry"):
+        d = None
+        if "exp_date" in g.columns:
+            d = next((parse_ymd(x) for x in g["exp_date"] if parse_ymd(x)), None)
+        d = d or code_to_date(exp)
+        if d:
+            out[exp] = d
+    return out
+
+
+def tx_settle_date(month: str, exp_dates: dict) -> dt.date:
+    """TX 月契約與同月 TXO 月選同日結算（含假日順延）；查不到才用第三個週三推算。"""
+    return exp_dates.get(month) or third_wednesday(month)
+
+
+def hedge_for(opt_settle: dt.date, futs: list[dict]) -> dict | None:
+    """在同一交易時段的 TX 中，找結算日 ≥ 選擇權結算日的最近一口。"""
+    cands = [f for f in futs if f["settle_date"] >= opt_settle]
+    return min(cands, key=lambda f: f["settle_date"]) if cands else None
 
 
 STATUS_LABEL = {
@@ -77,7 +133,7 @@ def _quote(r) -> dict:
     return q
 
 
-def build_chains(opt: pd.DataFrame, include_monthly: bool = False) -> dict:
+def build_chains(opt: pd.DataFrame, include_monthly: bool = True) -> dict:
     """回傳 {(到期別, 時段): {履約價: {"C": quote, "P": quote}}}。"""
     o = opt[opt["contract"] == "TXO"]
     exps = set(e for e in o["expiry"].unique() if is_weekly(e))

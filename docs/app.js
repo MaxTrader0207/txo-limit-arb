@@ -82,13 +82,18 @@ function renderSignals() {
 }
 
 function renderFwd() {
-  $("#fwdTable").innerHTML = `<tr><th>週別</th><th>時段</th><th>期貨</th><th>隱含價</th><th>差距</th><th>履約價數</th></tr>` +
-    REP.series.map((r) => `<tr><td>${esc(r.expiry)}</td><td>${esc(r.session)}</td><td class="n">${fmt(r.futures, 0)}</td>
+  const md = (d) => (d ? d.slice(5).replace("-", "/") : "-");
+  $("#fwdTable").innerHTML = `<tr><th>序列</th><th>時段</th><th>結算日</th><th>對應期貨</th><th>期貨結算</th><th>對沖</th>
+    <th>期貨狀態</th><th>期貨價</th><th>隱含價</th><th>差距</th><th>履約價數</th></tr>` +
+    REP.series.map((r) => `<tr><td>${esc(r.expiry)}</td><td>${esc(r.session)}</td><td>${md(r.opt_settle)}</td>
+      <td>TX ${esc(r.hedge)}</td><td>${md(r.hedge_settle)}</td>
+      <td class="${r.matched ? "yes" : "no"}">${r.matched ? "同日結算" : `差 ${r.basis_days} 天`}</td>
+      <td class="${esc(r.status)}">${esc(r.status_label)}</td><td class="n">${fmt(r.futures, 0)}</td>
       <td class="n">${fmt(r.implied_fwd)}</td><td class="n">${fmt(r.gap)}</td><td class="n">${r.chain.length}</td></tr>`).join("");
 }
 
 function renderSeriesSelect() {
-  $("#series").innerHTML = REP.series.map((s) => `<option value="${esc(s.expiry)}|${esc(s.session)}">${esc(s.expiry)} · ${esc(s.session)}</option>`).join("");
+  $("#series").innerHTML = REP.series.map((s) => `<option value="${esc(s.expiry)}|${esc(s.session)}">${esc(s.expiry)} · ${esc(s.session)} · ${esc((s.opt_settle || "").slice(5))} 結算 → TX ${esc(s.hedge)}</option>`).join("");
 }
 
 function renderChain() {

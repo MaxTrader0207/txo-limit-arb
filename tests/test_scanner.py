@@ -48,10 +48,44 @@ def test_taifex_20261110_basis_not_arbitrage():
     assert all(s["type"].endswith("（基差）") for s in rep["signals"] if not s["riskless"])
 
 
-def test_same_expiry_mapping():
-    from scanner.checks import same_expiry
-    assert same_expiry("202611W3", "202611") and same_expiry("202611", "202611")
-    assert not same_expiry("202611W2", "202611") and not same_expiry("202611F3", "202611")
+def test_each_series_maps_to_the_tx_that_settles_with_it():
+    """期交所 11/10 原始資料：每個選擇權序列都要對到「結算日 ≥ 自己」最近的 TX。"""
+    fut, opt = load("taifex_20261110")
+    rep = analyze(dt.date(2026, 11, 10), fut, opt, load_config())
+    m = {(s["expiry"], s["session"]): s for s in rep["series"]}
+    expect = {  # 到期別: (選擇權結算日, 對應 TX, TX 結算日, 是否同日)
+        "202611W2": ("2026-11-11", "202611", "2026-11-18", False),
+        "202611F2": ("2026-11-13", "202611", "2026-11-18", False),
+        "202611":   ("2026-11-18", "202611", "2026-11-18", True),
+        "202611F3": ("2026-11-20", "202612", "2026-12-16", False),
+    }
+    for exp, (od, tx, td, same) in expect.items():
+        s = m[(exp, "一般")]
+        assert (s["opt_settle"], s["hedge"], s["hedge_settle"], s["matched"]) == (od, tx, td, same), exp
+    # 只有同日結算的序列可以產生「無風險」期貨平價訊號
+    for sig in rep["signals"]:
+        if sig["type"].startswith(("Conversion", "Reversal")):
+            assert sig["riskless"] == m[(sig["expiry"], sig["session"])]["matched"]
+
+
+def test_hedge_picks_nearest_later_settlement():
+    from scanner.market import hedge_for, third_wednesday
+    futs = [{"contract": "202611", "settle_date": dt.date(2026, 11, 18)},
+            {"contract": "202612", "settle_date": dt.date(2026, 12, 16)}]
+    assert hedge_for(dt.date(2026, 11, 11), futs)["contract"] == "202611"
+    assert hedge_for(dt.date(2026, 11, 18), futs)["contract"] == "202611"
+    assert hedge_for(dt.date(2026, 11, 20), futs)["contract"] == "202612"
+    assert hedge_for(dt.date(2027, 1, 20), futs) is None
+    assert third_wednesday("202611") == dt.date(2026, 11, 18)
+
+
+def test_code_fallback_matches_taifex_dates():
+    from scanner.market import code_to_date
+    # 與期交所 11/10 CSV 的「契約到期日」一致
+    assert code_to_date("202611W2") == dt.date(2026, 11, 11)
+    assert code_to_date("202611F2") == dt.date(2026, 11, 13)
+    assert code_to_date("202611F3") == dt.date(2026, 11, 20)
+    assert code_to_date("202612") == dt.date(2026, 12, 16)
 
 
 def test_costs_are_charged():

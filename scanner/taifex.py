@@ -16,7 +16,7 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (txo-limit-arb)", "Referer": "https://www.
 
 # (標準欄名, 期交所欄名關鍵字)；漲跌% 必須排在 漲跌價 之前
 COLS = [
-    ("date", "交易日期"), ("contract", "契約"), ("expiry", "到期月份"),
+    ("date", "交易日期"), ("exp_date", "契約到期日"), ("contract", "契約"), ("expiry", "到期月份"),
     ("strike", "履約價"), ("cp", "買賣權"), ("open", "開盤價"), ("high", "最高價"),
     ("low", "最低價"), ("close", "收盤價"), ("chg_pct", "漲跌%"), ("chg", "漲跌價"),
     ("volume", "成交量"), ("settle", "結算價"), ("oi", "未沖銷"),

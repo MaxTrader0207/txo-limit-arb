@@ -7,13 +7,12 @@ from __future__ import annotations
 
 from .market import ok
 
-BASIS_NOTE = "到期日與近月期貨不同：選擇權結算後期貨仍未平倉，損益取決於屆時基差，不是無風險套利"
-SAME_EXP_NOTE = "與近月期貨同日結算"
+SAME_EXP_NOTE = "與對應期貨同日結算（同為台指特別結算價），到期損益鎖定"
 
 
-def same_expiry(opt_exp: str, fut_exp: str | None) -> bool:
-    """月選、或第三週週三的 W3，與近月台指期同一天結算。"""
-    return bool(fut_exp) and opt_exp in (fut_exp, f"{fut_exp}W3")
+def basis_note(h: dict) -> str:
+    return (f"選擇權 {h['opt_settle']:%m/%d} 結算、TX {h['contract']} 於 {h['settle_date']:%m/%d} 結算，"
+            f"中間 {h['basis_days']} 天期貨部位未對沖，損益取決於屆時基差，不是無風險套利")
 
 
 def opt_cost(premium, cfg) -> float:
@@ -47,7 +46,9 @@ class Collector:
 
 
 def scan_chain(chain: dict, exp: str, sess: str, F: float, status: str, cfg: dict,
-               all_strikes: bool = False, fut_expiry: str | None = None) -> list[dict]:
+               all_strikes: bool = False, hedge: dict | None = None) -> list[dict]:
+    """F：對應期貨價（用於深價外分界與期貨平價）；status：對應期貨的漲跌停狀態；
+    hedge：pipeline 配好的對應 TX（None 表示沒有可對沖的期貨，跳過期貨平價）。"""
     p = cfg["deep_otm_pct"]
     call_deep = lambda k: k >= F * (1 + p)
     put_deep = lambda k: k <= F * (1 - p)
@@ -56,9 +57,10 @@ def scan_chain(chain: dict, exp: str, sess: str, F: float, status: str, cfg: dic
     ks = list(chain)
 
     # 1) 期貨平價 ---------------------------------------------------------------
-    riskless = same_expiry(exp, fut_expiry)
+    riskless = bool(hedge and hedge["matched"])
     sfx = "" if riskless else "（基差）"
-    for k, q in chain.items():
+    note_ok = SAME_EXP_NOTE if riskless else (basis_note(hedge) if hedge else "")
+    for k, q in (chain.items() if hedge else []):
         c, pq = q.get("C"), q.get("P")
         if not c or not pq:
             continue
@@ -67,16 +69,16 @@ def scan_chain(chain: dict, exp: str, sess: str, F: float, status: str, cfg: dic
             cost = oc(c["bid"]) + oc(pq["ask"]) + fut_cost(F, cfg)
             feas = status != "LIMIT_UP"
             col.add("Conversion" + sfx,
-                    f"買小台@{F:g}、買P{k:g}@{pq['ask']:g}、賣C{k:g}@{c['bid']:g}",
+                    f"買小台 {hedge['contract']}@{F:g}、買P{k:g}@{pq['ask']:g}、賣C{k:g}@{c['bid']:g}",
                     c["bid"] - pq["ask"] - (F - k) - cost, cost, feasible=feas, deep=deep, strikes=(k,), riskless=riskless,
-                    note=(SAME_EXP_NOTE if riskless else BASIS_NOTE) if feas else "期貨漲停鎖死，買進期貨需排隊（多半成交不到）")
+                    note=note_ok if feas else "期貨漲停鎖死，買進期貨需排隊（多半成交不到）")
         if ok(c["ask"]) and ok(pq["bid"]):          # Reversal：賣期、賣P、買C
             cost = oc(c["ask"]) + oc(pq["bid"]) + fut_cost(F, cfg)
             feas = status != "LIMIT_DOWN"
             col.add("Reversal" + sfx,
-                    f"賣小台@{F:g}、賣P{k:g}@{pq['bid']:g}、買C{k:g}@{c['ask']:g}",
+                    f"賣小台 {hedge['contract']}@{F:g}、賣P{k:g}@{pq['bid']:g}、買C{k:g}@{c['ask']:g}",
                     (F - k) - (c["ask"] - pq["bid"]) - cost, cost, feasible=feas, deep=deep, strikes=(k,), riskless=riskless,
-                    note=(SAME_EXP_NOTE if riskless else BASIS_NOTE) if feas else "期貨跌停鎖死，賣出期貨需排隊（多半成交不到）")
+                    note=note_ok if feas else "期貨跌停鎖死，賣出期貨需排隊（多半成交不到）")
 
     # 2) Box spread（純選擇權）---------------------------------------------------
     full = [k for k in ks if chain[k].get("C") and chain[k].get("P")]

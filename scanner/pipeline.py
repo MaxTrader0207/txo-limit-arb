@@ -8,31 +8,53 @@ from pathlib import Path
 from . import taifex
 from .checks import scan_chain
 from .config import TPE
-from .market import LIMIT_EVENTS, build_chains, front_futures, implied_forward, limit_status
+from .market import (LIMIT_EVENTS, build_chains, expiry_dates, front_futures, hedge_for, implied_forward,
+                     limit_status, tx_contracts, tx_settle_date)
 
 
 def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False) -> dict:
+    exp_dates = expiry_dates(opt)
+
+    # 每個時段、每口 TX 月契約：狀態 + 實際結算日
+    futs: dict[str, list[dict]] = {}
+    for _, r in tx_contracts(fut).iterrows():
+        st = limit_status(r, cfg)
+        if st.get("close") is None:
+            continue
+        futs.setdefault(r["session"], []).append(
+            {**st, "contract": r["expiry"], "settle_date": tx_settle_date(r["expiry"], exp_dates)})
     sessions = {s: limit_status(r, cfg) for s, r in front_futures(fut).items()}
+
     chains = build_chains(opt, cfg["include_monthly"])
     series, signals = [], []
-    for (exp, sess), ch in sorted(chains.items()):
-        st = sessions.get(sess)
-        if not st or st.get("close") is None:
+    for (exp, sess), ch in sorted(chains.items(), key=lambda x: (exp_dates.get(x[0][0], dt.date.max), x[0][1])):
+        opt_settle = exp_dates.get(exp)
+        h = hedge_for(opt_settle, futs.get(sess, [])) if opt_settle else None
+        if h is None:
+            print(f"  [警告] {exp} {sess} 找不到結算日 ≥ {opt_settle} 的 TX，略過")
             continue
-        F = st["close"]
+        hedge = {"contract": h["contract"], "settle_date": h["settle_date"], "opt_settle": opt_settle,
+                 "matched": h["settle_date"] == opt_settle,
+                 "basis_days": (h["settle_date"] - opt_settle).days}
+        F = h["close"]
         fwd = implied_forward(ch, F)
         series.append({
-            "expiry": exp, "session": sess, "futures": F, "status": st["status"],
+            "expiry": exp, "session": sess, "opt_settle": opt_settle.isoformat(),
+            "hedge": h["contract"], "hedge_settle": h["settle_date"].isoformat(),
+            "matched": hedge["matched"], "basis_days": hedge["basis_days"],
+            "futures": F, "status": h["status"], "status_label": h["label"],
             "implied_fwd": round(fwd, 1) if fwd else None,
             "gap": round(fwd - F, 1) if fwd else None,
             "chain": [{"k": k, "C": q.get("C"), "P": q.get("P")} for k, q in ch.items()],
         })
-        signals += scan_chain(ch, exp, sess, F, st["status"], cfg, all_strikes, st.get("expiry"))
+        signals += scan_chain(ch, exp, sess, F, h["status"], cfg, all_strikes, hedge)
     signals.sort(key=lambda s: (not (s["feasible"] and s["riskless"]), not s["feasible"], -s["edge_pts"]))
+    used = {(s["hedge"], s["status"]) for s in series}
     return {
         "date": date.isoformat(),
         "generated": dt.datetime.now(TPE).isoformat(timespec="seconds"),
-        "limit_event": any(s["status"] in LIMIT_EVENTS for s in sessions.values()),
+        "limit_event": any(s["status"] in LIMIT_EVENTS for s in sessions.values())
+                       or any(st in LIMIT_EVENTS for _, st in used),
         "sessions": sessions, "series": series, "signals": signals,
         "config": {k: v for k, v in cfg.items()},
     }
