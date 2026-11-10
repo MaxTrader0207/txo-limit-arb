@@ -159,11 +159,12 @@ function renderSignals() {
 function renderFwd() {
   const md = (d) => (d ? d.slice(5).replace("-", "/") : "-");
   $("#fwdTable").innerHTML = `<tr><th>序列</th><th>時段</th><th>結算日</th><th>對應期貨</th><th>期貨結算</th><th>對沖</th>
-    <th>期貨狀態</th><th>期貨價</th><th>隱含價</th><th>差距</th><th>履約價數</th></tr>` +
+    <th>市場狀態</th><th>期貨價（買賣中價）</th><th>隱含價</th><th>差距</th><th>履約價數</th></tr>` +
     REP.series.map((r) => `<tr><td>${esc(r.expiry)}</td><td>${esc(r.session)}</td><td>${md(r.opt_settle)}</td>
       <td>${esc(r.hedge_product || "TX")} ${esc(r.hedge)}</td><td>${md(r.hedge_settle)}</td>
       <td class="${r.matched ? "yes" : "no"}">${r.matched ? "同日結算" : `差 ${r.basis_days} 天`}</td>
-      <td class="${esc(r.status)}">${esc(r.status_label)}</td><td class="n">${fmt(r.futures, 0)}</td>
+      <td class="${esc(r.status)}">${esc(r.status_label)}</td>
+      <td class="n">${fmt(r.futures, 1)}<div class="mut">${r.fut_bid !== undefined ? `買 ${fmt(r.fut_bid, 0)}／賣 ${fmt(r.fut_ask, 0)}・量 ${fmt(r.fut_vol, 0)}` : ""}</div></td>
       <td class="n">${fmt(r.implied_fwd)}</td><td class="n">${fmt(r.gap)}</td><td class="n">${r.chain_pruned ? "-" : r.chain.length}</td></tr>`).join("") +
     (REP.expired_today || []).map((r) => `<tr class="mut"><td>${esc(r.expiry)}</td><td>${esc(r.session)}</td><td>${md(r.opt_settle)}</td>
       <td colspan="8">今日 13:30 已結算，不列入掃描</td></tr>`).join("");

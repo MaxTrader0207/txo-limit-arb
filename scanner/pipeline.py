@@ -9,7 +9,7 @@ from . import taifex, twse
 from .expiry_sell import analyze_expiry
 from .checks import scan_chain
 from .config import TPE
-from .market import (LIMIT_EVENTS, build_chains, expiry_dates, front_futures, fut_settle_date, hedge_contracts,
+from .market import (LIMIT_EVENTS, num, ok, build_chains, expiry_dates, front_futures, fut_settle_date, hedge_contracts,
                      hedge_for, implied_forward, limit_status)
 
 KEEP_CHAIN_DAYS = 30   # 只保留最近 N 個交易日的完整選擇權鏈；更舊的可用 rebuild 從封存重算
@@ -27,7 +27,8 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex
         if st.get("close") is None:
             continue
         futs.setdefault(r["session"], []).append(
-            {**st, "contract": r["expiry"], "settle_date": fut_settle_date(r["expiry"], exp_dates)})
+            {**st, "contract": r["expiry"], "settle_date": fut_settle_date(r["expiry"], exp_dates),
+             "bid": num(r.get("bid")), "ask": num(r.get("ask")), "vol": num(r.get("volume")) or 0})
     sessions = {s: limit_status(r, cfg) for s, r in front_futures(fut).items()}
 
     chains = build_chains(opt, cfg["include_monthly"])
@@ -43,21 +44,27 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex
         if h is None:
             print(f"  [警告] {exp} {sess} 找不到結算日 ≥ {opt_settle} 的期貨，略過")
             continue
+        # 期貨腳用可成交報價（買用賣價、賣用買價）；成交稀少的小台週契約「最後成交價」可能是數小時前的舊價
+        bid, ask = h["bid"], h["ask"]
+        F = (bid + ask) / 2 if ok(bid) and ok(ask) else h["close"]
+        # 漲跌停是全市場事件；週契約收盤價可能失真，狀態改用同時段近月台指期
+        mkt = sessions.get(sess, h)
         hedge = {"contract": h["contract"], "settle_date": h["settle_date"], "opt_settle": opt_settle,
                  "matched": h["settle_date"] == opt_settle,
-                 "basis_days": (h["settle_date"] - opt_settle).days}
-        F = h["close"]
+                 "basis_days": (h["settle_date"] - opt_settle).days,
+                 "bid": bid, "ask": ask, "close": h["close"], "vol": h["vol"]}
         fwd = implied_forward(ch, F)
         series.append({
             "expiry": exp, "session": sess, "opt_settle": opt_settle.isoformat(),
             "hedge": h["contract"], "hedge_product": product, "hedge_settle": h["settle_date"].isoformat(),
             "matched": hedge["matched"], "basis_days": hedge["basis_days"],
-            "futures": F, "status": h["status"], "status_label": h["label"],
+            "futures": F, "fut_bid": bid, "fut_ask": ask, "fut_last": h["close"], "fut_vol": h["vol"],
+            "status": mkt["status"], "status_label": mkt["label"],
             "implied_fwd": round(fwd, 1) if fwd else None,
             "gap": round(fwd - F, 1) if fwd else None,
             "chain": [{"k": k, "C": q.get("C"), "P": q.get("P")} for k, q in ch.items()],
         })
-        signals += scan_chain(ch, exp, sess, F, h["status"], cfg, all_strikes, hedge,
+        signals += scan_chain(ch, exp, sess, F, mkt["status"], cfg, all_strikes, hedge,
                               hold_days=max((opt_settle - date).days, 1))
     signals.sort(key=lambda s: (not (s["feasible"] and s["riskless"]), not s["feasible"], -s["edge_pts"]))
     used = {(s["hedge"], s["status"]) for s in series}

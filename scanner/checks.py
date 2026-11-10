@@ -70,26 +70,35 @@ def scan_chain(chain: dict, exp: str, sess: str, F: float, status: str, cfg: dic
     riskless = bool(hedge and hedge["matched"])
     sfx = "" if riskless else "（基差）"
     note_ok = SAME_EXP_NOTE if riskless else (basis_note(hedge) if hedge else "")
+    # 期貨腳可成交價：買進用賣價、賣出用買價；鎖漲停時沒有賣價，只能以漲停價排隊買（反之亦然）
+    f_buy = f_sell = None
+    if hedge:
+        f_buy = hedge.get("ask") if ok(hedge.get("ask")) else (hedge.get("close") if status == "LIMIT_UP" else None)
+        f_sell = hedge.get("bid") if ok(hedge.get("bid")) else (hedge.get("close") if status == "LIMIT_DOWN" else None)
+        if hedge.get("ask") is None and hedge.get("bid") is None and "ask" not in hedge:   # 舊資料／測試：只有收盤價
+            f_buy = f_sell = F
+        if (hedge.get("vol") or 0) < cfg["min_fut_volume"]:
+            note_ok += f"；{hedge['contract']} 當日僅成交 {hedge.get('vol') or 0:.0f} 口，報價可能不穩"
     for k, q in (chain.items() if hedge else []):
         c, pq = q.get("C"), q.get("P")
         if not c or not pq:
             continue
         deep = call_deep(k) or put_deep(k)
-        if ok(c["bid"]) and ok(pq["ask"]):          # Conversion：買期、買P、賣C
-            cost = oc(c["bid"]) + oc(pq["ask"]) + fut_cost(F, cfg)
+        if f_buy and ok(c["bid"]) and ok(pq["ask"]):          # Conversion：買期、買P、賣C
+            cost = oc(c["bid"]) + oc(pq["ask"]) + fut_cost(f_buy, cfg)
             feas = status != "LIMIT_UP"
             col.add("Conversion" + sfx,
-                    f"買小台 {hedge['contract']}@{F:g}、買P{k:g}@{pq['ask']:g}、賣C{k:g}@{c['bid']:g}",
-                    c["bid"] - pq["ask"] - (F - k) - cost, cost,
+                    f"買小台 {hedge['contract']}@{f_buy:g}、買P{k:g}@{pq['ask']:g}、賣C{k:g}@{c['bid']:g}",
+                    c["bid"] - pq["ask"] - (f_buy - k) - cost, cost,
                     capital=mg.futures(cfg) + mg.debit(pq["ask"], cfg) + mg.short_opt("C", k, F, cfg),
                     feasible=feas, deep=deep, strikes=(k,), riskless=riskless,
                     note=note_ok if feas else "期貨漲停鎖死，買進期貨需排隊（多半成交不到）")
-        if ok(c["ask"]) and ok(pq["bid"]):          # Reversal：賣期、賣P、買C
-            cost = oc(c["ask"]) + oc(pq["bid"]) + fut_cost(F, cfg)
+        if f_sell and ok(c["ask"]) and ok(pq["bid"]):          # Reversal：賣期、賣P、買C
+            cost = oc(c["ask"]) + oc(pq["bid"]) + fut_cost(f_sell, cfg)
             feas = status != "LIMIT_DOWN"
             col.add("Reversal" + sfx,
-                    f"賣小台 {hedge['contract']}@{F:g}、賣P{k:g}@{pq['bid']:g}、買C{k:g}@{c['ask']:g}",
-                    (F - k) - (c["ask"] - pq["bid"]) - cost, cost,
+                    f"賣小台 {hedge['contract']}@{f_sell:g}、賣P{k:g}@{pq['bid']:g}、買C{k:g}@{c['ask']:g}",
+                    (f_sell - k) - (c["ask"] - pq["bid"]) - cost, cost,
                     capital=mg.futures(cfg) + mg.debit(c["ask"], cfg) + mg.short_opt("P", k, F, cfg),
                     feasible=feas, deep=deep, strikes=(k,), riskless=riskless,
                     note=note_ok if feas else "期貨跌停鎖死，賣出期貨需排隊（多半成交不到）")

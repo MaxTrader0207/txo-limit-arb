@@ -12,8 +12,12 @@ FX = Path(__file__).parent / "fixtures"
 
 def load(name):
     ext = ".csv.gz" if name.startswith("taifex") else ".csv"
-    return (taifex.parse(taifex.read_text(FX / f"{name}_TX{ext}")),
-            taifex.parse(taifex.read_text(FX / f"{name}_TXO{ext}")))
+    fut = taifex.parse(taifex.read_text(FX / f"{name}_TX{ext}"))
+    mtx = FX / f"{name}_MTX{ext}"
+    if mtx.exists():
+        import pandas as _pd
+        fut = _pd.concat([fut, taifex.parse(taifex.read_text(mtx))], ignore_index=True)
+    return fut, taifex.parse(taifex.read_text(FX / f"{name}_TXO{ext}"))
 
 
 def test_limit_status_thresholds():
@@ -238,3 +242,25 @@ def test_signals_carry_capital():
     rep = analyze(dt.date(2026, 11, 10), fut, opt, load_config())
     fly = [s for s in rep["signals"] if "蝴蝶" in s["type"]]
     assert fly and all("capital_ntd" in s and s["hold_days"] >= 1 for s in fly)
+
+
+# ---------------------------------------------------------------- 真實事件回歸測試
+def test_20250407_limit_down_reversal_is_not_executable():
+    """2025/4/7 台指期跌停鎖死：選擇權隱含價遠低於期貨，Reversal 看似暴利但賣不出期貨。"""
+    fut, opt = load("taifex_20250407")
+    rep = analyze(dt.date(2025, 4, 7), fut, opt, load_config())
+    assert rep["sessions"]["一般"]["status"] == "LIMIT_DOWN"
+    day = [s for s in rep["series"] if s["session"] == "一般" and s["matched"]]
+    assert day and all(s["gap"] < -1000 for s in day)
+    rev = [x for x in rep["signals"] if x["session"] == "一般" and x["type"] == "Reversal"]
+    assert rev and not any(x["feasible"] for x in rev)
+
+
+def test_20261103_stale_weekly_futures_last_price_ignored():
+    """2026/11/3 小台 W2 僅成交 9 口、最後成交價 45080 為舊價；應改用買賣報價 43202/43223，不得產生大額假套利。"""
+    fut, opt = load("taifex_20261103")
+    rep = analyze(dt.date(2026, 11, 3), fut, opt, load_config())
+    w2 = next(s for s in rep["series"] if s["expiry"] == "202611W2" and s["session"] == "一般")
+    assert w2["fut_last"] == 45080 and abs(w2["futures"] - 43212.5) < 1
+    big = [x for x in rep["signals"] if x["riskless"] and x["feasible"] and x["edge_pts"] > 50]
+    assert big == []
