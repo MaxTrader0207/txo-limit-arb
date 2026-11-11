@@ -128,7 +128,7 @@ function renderExpiry() {
         <div class="big">${fmt(b.floor, 0)} ～ ${fmt(b.ceiling, 0)}</div>
         <div class="mut">零風險：Call K &gt; ${fmt(b.ceiling, 0)}、Put K &lt; ${fmt(b.floor, 0)}</div></div>
     </div>` + es.series.map((s) => `
-    <h3>${esc(s.expiry)}　最後結算價 ${fmt(s.final_settle, 2)}${s.settle_approx ? "（以收盤近似）" : ""}</h3>
+    <h3>${esc(s.expiry)}　最後結算價 ${fmt(s.final_settle, 2)}<span class="mut">（${esc(s.settle_source || (s.settle_approx ? "以收盤近似" : "日行情反推"))}）</span></h3>
     ${(s.warnings || []).map((w) => `<div class="banner alert">⚠️ ${esc(w)}</div>`).join("")}
     <div class="wrap"><table><tr><th>區域</th><th>有成交履約價</th><th>總成交量</th><th>成交權利金(元)</th>
       <th>最高價格</th><th>賣出獲利檔數</th><th>虧損檔數</th><th>最佳損益(點)</th><th>最佳每萬元賺(元)</th></tr>

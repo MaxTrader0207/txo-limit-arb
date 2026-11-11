@@ -427,3 +427,26 @@ def test_settle_pending_backfills_realized(tmp_path):
     assert got["realized_pts"] == round(10 - 100 - 1.42 - (0.7 + 42100 * 2e-5), 2) and got["realized_sides"] == 3
     idx = json.loads((tmp_path / "index.json").read_text("utf-8"))
     assert idx["days"][0]["spreads"]["limited"]["realized_ntd"] == got["realized_ntd"]
+
+
+def test_parse_final_settlement_page():
+    html = """<table><tr><th>最後結算日</th><th>契約月份</th><th>臺指選擇權（TXO）</th></tr>
+    <tr><td align="center">2026/11/06</td><td align="center">202611F1</td><td align="right">39824</td><td>-</td></tr>
+    <tr><td>2026/11/04</td>
+        <td>202611W1</td>   <td>42,978</td></tr>
+    <tr><td>2026/10/21</td><td>202610</td><td>46650</td><td>2911.85</td></tr></table>"""
+    got = taifex.parse_fsp(html)
+    assert got == {"202611F1": {"date": "2026-11-06", "price": 39824.0},
+                   "202611W1": {"date": "2026-11-04", "price": 42978.0},
+                   "202610": {"date": "2026-10-21", "price": 46650.0}}
+
+
+def test_expiry_sell_prefers_official_final_settlement():
+    from scanner.expiry_sell import analyze_expiry
+    taiex = {"prev_close": 43307.54, "close": 42948.91, "high": 43741.54, "low": 41855.82,
+             "pct": -0.83, "high_pct": 1.0, "low_pct": -3.35}
+    opt = _opt_rows("202611W1", [(48000, "C", 0.3, 0.5, 10, 0.0), (42000, "C", 950, 1000, 5, 0.0)])
+    es = analyze_expiry(dt.date(2026, 11, 4), opt, {"202611W1": dt.date(2026, 11, 4)}, taiex, load_config(),
+                        {"202611W1": {"date": "2026-11-04", "price": 42978.0}})
+    s = es["series"][0]
+    assert s["final_settle"] == 42978.0 and not s["settle_approx"] and s["settle_source"] == "期交所最後結算價"

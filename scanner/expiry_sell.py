@@ -61,7 +61,8 @@ def final_settlement(rows) -> tuple[float | None, float | None]:
     return vals[len(vals) // 2], round(vals[-1] - vals[0], 2)
 
 
-def analyze_expiry(date, opt, exp_dates: dict, taiex: dict | None, cfg: dict) -> dict | None:
+def analyze_expiry(date, opt, exp_dates: dict, taiex: dict | None, cfg: dict, fsp: dict | None = None) -> dict | None:
+    """fsp：期交所公布的最後結算價 {到期別: {"price"}}，優先使用。"""
     expiring = [e for e, d in exp_dates.items() if d == date]
     if not expiring:
         return None
@@ -89,10 +90,13 @@ def analyze_expiry(date, opt, exp_dates: dict, taiex: dict | None, cfg: dict) ->
             rows.append({"k": k, "side": side, "last": num(r.get("close")), "high": num(r.get("high")),
                          "vol": num(r.get("volume")) or 0, "settle": num(r.get("settle"))})
         (S, spread), approx, warn = final_settlement(rows), False, []
+        source = "期交所日行情結算價反推"
+        if fsp and exp in fsp:
+            S, spread, source = fsp[exp]["price"], None, "期交所最後結算價"
         if S is not None and spread is not None and spread > 1:
             warn.append(f"各價內 Call 反推結算價相差 {spread} 點，結算價欄位可能不是最後結算價")
         if S is None and taiex.get("close"):
-            S, approx = taiex["close"], True        # 後備：以收盤指數近似（非 30 分鐘均價）
+            S, approx, source = taiex["close"], True, "以收盤指數近似（非 30 分鐘均價）"
         if S is not None and not (prev * 0.9 - 1 <= S <= prev * 1.1 + 1):
             warn.append(f"結算價 {S:,.2f} 超出理論區間 {prev * 0.9:,.0f}～{prev * 1.1:,.0f}，資料可能錯置，損益不可信")
         zones = {"zero": [], "low": []}
@@ -130,7 +134,8 @@ def analyze_expiry(date, opt, exp_dates: dict, taiex: dict | None, cfg: dict) ->
             }
         for lst in zones.values():
             lst.sort(key=lambda x: -(x["last"] or 0))
-        out["series"].append({"expiry": exp, "final_settle": S, "settle_approx": approx, "warnings": warn,
+        out["series"].append({"expiry": exp, "final_settle": S, "settle_approx": approx, "settle_source": source,
+                              "warnings": warn,
                               "zones": zones, "stats": stats})
     return out
 

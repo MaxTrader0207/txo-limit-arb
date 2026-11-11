@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import datetime as dt
 import gzip
+import json
+import re
 import io
 import time
 from pathlib import Path
@@ -129,3 +131,73 @@ def _load_optional(kind: str, date: dt.date, archive_dir: Path, mode: str) -> pd
     except (NoData, RuntimeError, ValueError) as e:
         print(f"  [警告] {kind} 取不到，改用 TX 對沖：{e}")
         return None
+
+
+# ---------------------------------------------------------------- 最後結算價
+# 日行情裡到期序列在結算當天的「結算價」欄為 0，真正的最後結算價（13:00–13:30 加權指數均價）
+# 要從期交所「指數選擇權最後結算價」頁取得。結果快取在 archive/taifex/fsp.json：{到期別: {"date", "price"}}。
+FSP_URL = "https://www.taifex.com.tw/cht/12/optIndxFSP"
+_ROW = re.compile(r"(\d{4}/\d{2}/\d{2})\s*</t[dh]>\s*<t[dh][^>]*>\s*(\d{6}(?:[WF]\d)?)\s*</t[dh]>\s*<t[dh][^>]*>\s*([\d,.]+)",
+                  re.S)
+
+
+def parse_fsp(html: str) -> dict:
+    out = {}
+    for d, code, px in _ROW.findall(html):
+        out[code] = {"date": d.replace("/", "-"), "price": float(px.replace(",", ""))}
+    return out
+
+
+def _form_fields(html: str, start: dt.date, end: dt.date) -> tuple[str, dict]:
+    """解析查詢表單：年、月下拉選單依出現順序填起、迄；勾選 TXO；保留隱藏欄位。"""
+    m = re.search(r"<form[^>]*action=\"([^\"]*)\"", html, re.S | re.I)
+    action = m.group(1) if m else FSP_URL
+    if action.startswith("/"):
+        action = "https://www.taifex.com.tw" + action
+    data, years, months = {}, [], []
+    for name, body in re.findall(r"<select[^>]*name=\"([^\"]+)\"[^>]*>(.*?)</select>", html, re.S | re.I):
+        vals = re.findall(r"value=\"([^\"]*)\"", body)
+        if any(v == "2025" for v in vals):
+            years.append(name)
+        elif any(v in ("01", "1") for v in vals) and any(v == "12" for v in vals):
+            months.append(name)
+    for name, val, typ in [(n, v, t) for t, n, v in re.findall(
+            r"<input[^>]*type=\"(hidden|checkbox)\"[^>]*name=\"([^\"]+)\"[^>]*value=\"([^\"]*)\"", html, re.S | re.I)]:
+        if typ.lower() == "hidden" or val.upper() == "TXO":
+            data.setdefault(name, val)
+    if len(years) >= 2 and len(months) >= 2:
+        data[years[0]], data[years[1]] = str(start.year), str(end.year)
+        data[months[0]], data[months[1]] = f"{start.month:02d}", f"{end.month:02d}"
+    print(f"  [最後結算價] 表單 {action}；年 {years}、月 {months}；送出欄位 {sorted(data)}")
+    return action, data
+
+
+def fetch_fsp(archive_dir: Path, start: dt.date, end: dt.date) -> dict:
+    """抓期交所指數選擇權最後結算價並更新快取；失敗時回傳既有快取。"""
+    p = archive_dir / "taifex" / "fsp.json"
+    cache = json.loads(p.read_text("utf-8")) if p.exists() else {}
+    try:
+        r = requests.get(FSP_URL, headers=HEADERS, timeout=60)
+        r.raise_for_status()
+        html = r.text
+        got = parse_fsp(html)
+        if start < dt.date.today() - dt.timedelta(days=300):
+            action, data = _form_fields(html, start, end)
+            if data:
+                r2 = requests.post(action, data=data, headers=HEADERS, timeout=60)
+                if r2.ok:
+                    more = parse_fsp(r2.text)
+                    print(f"  [最後結算價] 查詢 {start:%Y/%m}～{end:%Y/%m} 取得 {len(more)} 筆")
+                    got.update(more)
+        cache.update(got)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(cache, ensure_ascii=False, indent=0, sort_keys=True), "utf-8")
+        print(f"  [最後結算價] 共 {len(cache)} 筆（本次 {len(got)} 筆）")
+    except (requests.RequestException, ValueError) as e:
+        print(f"  [警告] 最後結算價取得失敗：{e}")
+    return cache
+
+
+def load_fsp(archive_dir: Path) -> dict:
+    p = archive_dir / "taifex" / "fsp.json"
+    return json.loads(p.read_text("utf-8")) if p.exists() else {}

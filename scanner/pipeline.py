@@ -18,7 +18,7 @@ KEEP_CHAIN_DAYS = 30   # 只保留最近 N 個交易日的完整選擇權鏈；�
 
 
 def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex: dict | None = None,
-            hist: list[float] | None = None) -> dict:
+            hist: list[float] | None = None, fsp: dict | None = None) -> dict:
     exp_dates = expiry_dates(opt)
 
     # 每個時段、每口對沖用期貨（小台月＋週契約）：狀態 + 實際結算日
@@ -88,7 +88,7 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex
         "limit_event": any(s["status"] in LIMIT_EVENTS for s in sessions.values())
                        or any(st in LIMIT_EVENTS for _, st in used),
         "sessions": sessions, "series": series, "signals": signals, "expired_today": expired,
-        "expiry_sell": analyze_expiry(date, opt, exp_dates, taiex, cfg),
+        "expiry_sell": analyze_expiry(date, opt, exp_dates, taiex, cfg, fsp),
         "spreads": scan_spreads(date, chains, exp_dates, taiex, sessions,
                                 {s["expiry"]: s["implied_fwd"] for s in series if s["session"] == "一般"}, cfg, hist),
         "taiex": taiex,
@@ -183,7 +183,10 @@ def run_date(date: dt.date, cfg: dict, data_dir: Path, archive_dir: Path,
     # 每天都需要加權指數收盤：價差策略的結算價上下限、結算日賣方
     taiex = twse.day_info(date, archive_dir, "refresh" if mode == "refresh" else
                           ("offline" if mode == "offline" else "cache"))
-    rep = analyze(date, fut, opt, cfg, all_strikes, taiex, twse.history_returns(archive_dir, date))
+    fsp = taifex.load_fsp(archive_dir)
+    if mode == "refresh" and any(d == date for d in expiry_dates(opt).values()):
+        fsp = taifex.fetch_fsp(archive_dir, date - dt.timedelta(days=40), date)
+    rep = analyze(date, fut, opt, cfg, all_strikes, taiex, twse.history_returns(archive_dir, date), fsp)
     if not rep["series"] and not rep["expiry_sell"] and not rep.get("spreads"):
         print(f"[略過] {date} 沒有可分析的週選序列")
         return None
