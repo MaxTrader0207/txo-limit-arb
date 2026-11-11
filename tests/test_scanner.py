@@ -310,7 +310,7 @@ def test_doubtful_signals_not_counted():
 def test_calendar_detects_near_dearer_than_far():
     from scanner.checks import scan_calendar
     cfg = load_config()
-    near = {44000.0: {"C": _q(10, 11)}, 36000.0: {"P": _q(8, 9)}, 40000.0: {"C": _q(300, 305)}}
+    near = {44000.0: {"C": _q(20, 21)}, 36000.0: {"P": _q(8, 9)}, 40000.0: {"C": _q(300, 305)}}
     far = {44400.0: {"C": _q(5, 6)}, 44500.0: {"C": _q(4, 5)}, 36300.0: {"P": _q(12, 13)}, 36400.0: {"P": _q(14, 15)}}
     sig = scan_calendar(near, far, "202611W2", "202611F2", "一般", 40000, 40400, cfg, hold_days=1)
     by = {s["type"]: s for s in sig}
@@ -318,3 +318,30 @@ def test_calendar_detects_near_dearer_than_far():
     assert "C44400@6" in c["legs"] and c["edge_pts"] > 3 and c["nature"] == "跨週別" and not c["riskless"]
     assert "Put 跨週別" not in by                 # 36000 × 1.01 = 36360 → 遠週取 36400，賣 8 買 15 → 不成立
     assert all(s["strikes"] != [40000.0] for s in sig)   # 價平不在預設檢查範圍
+
+
+
+def test_fee_model_35_per_side():
+    """選擇權、小台每口單邊 35 元；持有到結算時價內腳再收手續費＋結算稅，價外歸零不收。"""
+    from scanner.checks import opt_cost, settle_cost
+    cfg = load_config()
+    assert cfg["opt_fee"] == 35 and cfg["fut_fee"] == 35
+    assert abs(opt_cost(10, cfg) - (0.7 + 0.01)) < 1e-9                  # 35/50 + 10 × 0.1%
+    assert abs(settle_cost(42500, cfg, 1) - (0.7 + 0.85)) < 1e-9         # 手續費 0.7 點＋結算稅 42500 × 2e-5
+    sig = scan_chain({44000.0: {"C": _q(10, 11)}, 44100.0: {"C": _q(15, 16)}}, "W", "一般", 40000, "NORMAL", cfg)
+    mono = next(s for s in sig if s["type"] == "Call 單調性")
+    assert (mono["opt_sides"], mono["fut_sides"]) == (4, 0)              # 開倉 2 口＋結算最多 2 口價內
+    # 毛利 15 − 11 = 4；開倉 2 × 0.7 + 稅 0.026、結算 2 × (0.7 + 0.8) → 約 −0.43，35 元未達門檻；
+    # 手續費降到 10 元（4 次 × 0.5 點 = +2）時為 1.57 ≥ 1，所以仍保存給前端
+    assert -0.5 < mono["edge_pts"] < -0.4 and mono["above_min"] is False
+
+
+def test_expiry_sell_charges_settlement_only_when_itm():
+    from scanner.expiry_sell import analyze_expiry
+    taiex = {"prev_close": 40000.0, "close": 43900.0, "high": 43950.0, "low": 40100.0,
+             "pct": 9.75, "high_pct": 9.88, "low_pct": 0.25}
+    opt = _opt_rows("202611W2", [(44200, "C", 0.8, 1.5, 120, 0.0), (43000, "C", 900, 1500, 10, 870.0),
+                                 (39500, "P", 3.0, 25.0, 300, 0.0)])
+    es = analyze_expiry(dt.date(2026, 11, 11), opt, {"202611W2": dt.date(2026, 11, 11)}, taiex, load_config())
+    z = es["series"][0]["zones"]["zero"][0]
+    assert z["opt_sides"] == 1 and abs(z["pnl_last"] - (0.8 - 0.7 - 0.0008)) < 0.01   # 價外歸零只付開倉

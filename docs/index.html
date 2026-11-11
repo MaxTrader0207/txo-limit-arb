@@ -12,7 +12,13 @@
     <h1>TXO 週選 × 台指期 漲跌停套利掃描</h1>
     <div class="mut" id="updated">載入中…</div>
   </div>
-  <label class="pick">交易日 <select id="date"></select></label>
+  <div class="pick">
+    <label>交易日 <select id="date"></select></label>
+    <div class="fees">手續費（元／口／單邊）
+      <label>選擇權 <input type="number" id="feeOpt" min="10" max="100" step="1"></label>
+      <label>小台 <input type="number" id="feeFut" min="10" max="100" step="1"></label>
+    </div>
+  </div>
 </header>
 
 <div id="banner" class="banner"></div>

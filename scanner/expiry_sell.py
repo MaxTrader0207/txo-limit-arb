@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 
 from . import margin as mg
-from .checks import opt_cost
+from .checks import opt_cost, settle_cost
 from .market import num
 
 
@@ -106,8 +106,12 @@ def analyze_expiry(date, opt, exp_dates: dict, taiex: dict | None, cfg: dict) ->
             if S is not None:
                 payoff = max(0.0, S - x["k"]) if x["side"] == "C" else max(0.0, x["k"] - S)
             item = {**x, "payoff": payoff, "margin": round(mg.short_opt(x["side"], x["k"], ref, cfg))}
+            # 價外歸零：只付開倉成本；到期價內：結算時再付手續費＋結算稅
+            itm = bool(payoff and payoff > 0)
+            item["opt_sides"] = 2 if itm else 1
+            sc = settle_cost(S, cfg, 1) if itm else 0.0
             for tag, px in (("pnl_last", x["last"]), ("pnl_high", x["high"])):
-                item[tag] = (round(px - payoff - opt_cost(px, cfg), 2)
+                item[tag] = (round(px - payoff - opt_cost(px, cfg) - sc, 2)
                              if px is not None and payoff is not None else None)
             # 每萬元保證金報酬（以最後成交價賣出、持有到當日結算）
             item["per_10k"] = (round(item["pnl_last"] * cfg["point_value"] / item["margin"] * 10000, 2)

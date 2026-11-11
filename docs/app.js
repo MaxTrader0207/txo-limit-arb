@@ -7,6 +7,50 @@ const STATUS = { LIMIT_UP: "漲停鎖住", LIMIT_DOWN: "跌停鎖住", TOUCHED_U
   NEAR_UP: "接近漲停", NEAR_DOWN: "接近跌停", NORMAL: "正常", UNKNOWN: "資料不足" };
 
 let INDEX = null, REP = null;
+const FEE = { opt: null, fut: null };
+
+// 手續費調整：後端以 config 的手續費計算 edge，並記錄每個訊號「收幾次選擇權／期貨手續費」
+function feeDelta(optSides, futSides) {
+  const c = REP.config || {};
+  if (FEE.opt === null || c.opt_fee === undefined) return 0;
+  return ((optSides || 0) * (c.opt_fee - FEE.opt) + (futSides || 0) * (c.fut_fee - FEE.fut)) / (c.point_value || 50);
+}
+function adj(s) {
+  const pv = REP.config.point_value || 50, d = feeDelta(s.opt_sides, s.fut_sides);
+  const edge = s.edge_pts + d, cap = s.capital ?? s.capital_ntd;
+  const per = cap >= 1000 ? edge * pv / cap * 10000 : null;
+  return { edge, ntd: edge * pv, cost: s.cost_pts - d, per,
+           annual: per === null ? null : per / 100 * 365 / Math.max(s.hold_days || 1, 1) };
+}
+function adjItem(x) {
+  const d = feeDelta(x.opt_sides, 0), pv = REP.config.point_value || 50;
+  const last = x.pnl_last === null ? null : x.pnl_last + d, high = x.pnl_high === null ? null : x.pnl_high + d;
+  return { ...x, pnl_last: last, pnl_high: high, per_10k: last === null ? null : last * pv / x.margin * 10000 };
+}
+function zoneStats(lst) {
+  const pnl = lst.map((x) => x.pnl_last).filter((p) => p !== null);
+  const per = lst.map((x) => x.per_10k).filter((p) => p !== null);
+  return { strikes: lst.length, volume: lst.reduce((a, x) => a + x.vol, 0),
+    premium_ntd: lst.reduce((a, x) => a + (x.last || 0) * x.vol, 0) * (REP.config.point_value || 50),
+    max_last: Math.max(0, ...lst.map((x) => x.last || 0)), profitable: pnl.filter((p) => p > 0).length,
+    losing: pnl.filter((p) => p < 0).length, best_pnl: pnl.length ? Math.max(...pnl) : null,
+    best_per_10k: per.length ? Math.max(...per) : null };
+}
+function initFees() {
+  const c = REP.config;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem("txoFees") || "null"); } catch (e) { saved = null; }
+  FEE.opt = saved?.opt ?? c.opt_fee; FEE.fut = saved?.fut ?? c.fut_fee;
+  $("#feeOpt").min = $("#feeFut").min = c.fee_floor ?? 10;
+  $("#feeOpt").value = FEE.opt; $("#feeFut").value = FEE.fut;
+}
+function onFee() {
+  const lo = REP.config.fee_floor ?? 10;
+  FEE.opt = Math.max(lo, Number($("#feeOpt").value) || REP.config.opt_fee);
+  FEE.fut = Math.max(lo, Number($("#feeFut").value) || REP.config.fut_fee);
+  try { localStorage.setItem("txoFees", JSON.stringify(FEE)); } catch (e) { /* 無法儲存就算了 */ }
+  renderSignals(); renderExpiry();
+}
 
 async function getJSON(url) {
   const r = await fetch(url + "?t=" + Date.now());
@@ -43,6 +87,7 @@ async function loadDay(date) {
   REP = await getJSON(`data/daily/${date}.json`);
   history.replaceState(null, "", `?date=${date}`);
   $("#updated").textContent = `資料產生於 ${REP.generated.replace("T", " ")}`;
+  initFees();
   renderSessions();
   renderTypeFilter();
   renderSignals();
@@ -52,7 +97,8 @@ async function loadDay(date) {
   renderExpiry();
 }
 
-function zoneTable(lst) {
+function zoneTable(raw) {
+  const lst = raw.map(adjItem);
   if (!lst.length) return `<div class="empty">當日此區無成交</div>`;
   return `<div class="wrap"><table><tr><th>履約價</th><th>買賣權</th><th>最後成交</th><th>最高</th><th>成交量</th>
     <th>到期價值</th><th>賣最後價損益(點)</th><th>賣最高價損益(點)</th><th>保證金(元)</th><th>每萬元賺(元)</th></tr>` +
@@ -84,7 +130,7 @@ function renderExpiry() {
     ${(s.warnings || []).map((w) => `<div class="banner alert">⚠️ ${esc(w)}</div>`).join("")}
     <div class="wrap"><table><tr><th>區域</th><th>有成交履約價</th><th>總成交量</th><th>成交權利金(元)</th>
       <th>最高價格</th><th>賣出獲利檔數</th><th>虧損檔數</th><th>最佳損益(點)</th><th>最佳每萬元賺(元)</th></tr>
-      ${[["zero", "零風險"], ["low", "低風險"]].map(([k, n]) => { const x = s.stats[k]; return `<tr><td>${n}</td>
+      ${[["zero", "零風險"], ["low", "低風險"]].map(([k, n]) => { const x = zoneStats(s.zones[k].map(adjItem)); return `<tr><td>${n}</td>
         <td class="n">${x.strikes}</td><td class="n">${fmt(x.volume, 0)}</td><td class="n">${fmt(x.premium_ntd, 0)}</td>
         <td class="n">${fmt(x.max_last)}</td><td class="n yes">${x.profitable}</td><td class="n no">${x.losing}</td>
         <td class="n">${fmt(x.best_pnl, 2)}</td><td class="n">${fmt(x.best_per_10k, 2)}</td></tr>`; }).join("")}</table></div>
@@ -146,24 +192,28 @@ function renderSignals() {
   const riskless = (s) => s.riskless !== false;
   const nature = (s) => s.nature || (riskless(s) ? "套利" : "基差");
   const doubtful = (s) => s.quality === "存疑";
-  const rows = REP.signals.filter((s) => (!feas || s.feasible) && (!deep || s.deep_otm) &&
+  const minEdge = REP.config.min_edge ?? 1;
+  const above = (s) => adj(s).edge >= minEdge;
+  const rows = REP.signals.filter((s) => above(s) && (!feas || s.feasible) && (!deep || s.deep_otm) &&
     (basis || riskless(s)) && (!qual || !doubtful(s)) && (!type || s.type === type));
+  rows.sort((a, b) => (b.feasible - a.feasible) || (adj(b).edge - adj(a).edge));
   const hidden = [];
-  const nb = REP.signals.filter((s) => !riskless(s)).length, nq = REP.signals.filter(doubtful).length;
+  const nb = REP.signals.filter((s) => above(s) && !riskless(s)).length;
+  const nq = REP.signals.filter((s) => above(s) && doubtful(s)).length;
   if (!basis && nb) hidden.push(`${nb} 筆基差／跨週別`);
   if (qual && nq) hidden.push(`${nq} 筆報價存疑`);
   $("#sigTable").innerHTML = `<tr><th>類型</th><th>性質</th><th>週別</th><th>時段</th><th>組合</th><th>淨利(點)</th><th>淨利(元)</th>
     <th>成本(點)</th><th>報價</th><th>所需資金(元)</th><th>每萬元賺(元)</th><th>年化%</th><th>持有天數</th><th>可否成交</th><th>深價外</th><th>備註</th></tr>` +
     (rows.length ? rows.map((s) => `<tr class="click" data-exp="${esc(s.expiry)}" data-sess="${esc(s.session)}">
       <td>${esc(s.type)}</td><td class="${riskless(s) ? "yes" : "no"}">${esc(nature(s))}</td><td>${esc(s.expiry)}</td><td>${esc(s.session)}</td><td>${esc(s.legs)}</td>
-      <td class="n">${fmt(s.edge_pts, 2)}</td><td class="n">${fmt(s.edge_ntd, 0)}</td><td class="n">${fmt(s.cost_pts, 2)}</td>
+      <td class="n">${fmt(adj(s).edge, 2)}</td><td class="n">${fmt(adj(s).ntd, 0)}</td><td class="n">${fmt(adj(s).cost, 2)}</td>
       <td class="${doubtful(s) ? "no" : "yes"}" title="${esc((s.quality_reasons || []).join("、"))}">${doubtful(s) ? "存疑" : (s.quality ? "可靠" : "-")}</td>
       <td class="n">${s.capital_ntd === undefined ? "-" : fmt(s.capital_ntd, 0)}</td>
-      <td class="n">${s.per_10k === null && s.capital_ntd !== undefined ? "免資金" : fmt(s.per_10k, 1)}</td>
-      <td class="n">${fmt(s.annual_pct, 1)}</td><td class="n">${fmt(s.hold_days, 0)}</td>
+      <td class="n">${adj(s).per === null && s.capital_ntd !== undefined ? "免資金" : fmt(adj(s).per, 1)}</td>
+      <td class="n">${fmt(adj(s).annual, 1)}</td><td class="n">${fmt(s.hold_days, 0)}</td>
       <td class="${s.feasible ? "yes" : "no"}">${s.feasible ? "可" : "需排隊"}</td><td>${s.deep_otm ? "★" : ""}</td>
       <td class="mut">${doubtful(s) ? `<span class="no">${esc(s.quality_reasons.join("、"))}</span>；` : ""}${esc(s.note)}</td></tr>`).join("")
-      : `<tr><td colspan="16" class="empty">扣除成本後無符合條件的訊號</td></tr>`) +
+      : `<tr><td colspan="16" class="empty">以目前手續費（選擇權 ${FEE.opt}、小台 ${FEE.fut} 元）扣除成本後，無符合條件的訊號</td></tr>`) +
     (hidden.length ? `<tr><td colspan="16" class="mut">已隱藏 ${hidden.join("、")}，可用上方勾選切換</td></tr>` : "");
   document.querySelectorAll("#sigTable tr.click").forEach((tr) => tr.onclick = () => {
     $("#series").value = tr.dataset.exp + "|" + tr.dataset.sess;
@@ -213,7 +263,7 @@ function renderChain() {
 }
 
 function renderHistory() {
-  $("#histTable").innerHTML = `<tr><th>交易日</th><th>狀態</th><th>漲跌%</th><th>可成交套利</th><th>報價存疑</th><th>跨週別</th><th>基差交易</th><th>最佳訊號</th></tr>` +
+  $("#histTable").innerHTML = `<tr><th>交易日</th><th>狀態</th><th>漲跌%</th><th>可成交套利<span class="mut">（預設手續費）</span></th><th>報價存疑</th><th>跨週別</th><th>基差交易</th><th>最佳訊號</th></tr>` +
     INDEX.days.map((d) => {
       const st = Object.entries(d.status).map(([k, v]) => `<span class="${v}">${k}:${STATUS[v] || v}</span>`).join(" ");
       const pct = Object.values(d.pct || {}).map((x) => fmt(x, 2)).join(" / ");
@@ -235,5 +285,6 @@ function switchTab(name) {
 document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
 ["#fFeas", "#fDeep", "#fBasis", "#fQual", "#fType"].forEach((s) => ($(s).onchange = renderSignals));
 $("#series").onchange = renderChain;
+["#feeOpt", "#feeFut"].forEach((s) => ($(s).onchange = onFee));
 $("#fQuoted").onchange = renderChain;
 init();

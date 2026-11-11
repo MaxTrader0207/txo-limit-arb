@@ -31,3 +31,7 @@ tr.click{cursor:pointer}tr.click:hover{background:rgba(255,255,255,.04)}
 .lg.deep{background:#1f3550}.lg.atm{background:#5a4416}.lg.hit{background:#6b2523}
 footer{margin:24px 0 8px}
 @media(max-width:600px){body{padding:12px}h1{font-size:16px}.big{font-size:19px}}
+.pick{display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.fees{font-size:12px;color:var(--mut);display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.fees input{width:56px;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font:inherit}
+@media(max-width:600px){.pick{align-items:flex-start}.fees{justify-content:flex-start}}

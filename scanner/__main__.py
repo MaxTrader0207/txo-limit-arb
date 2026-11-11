@@ -32,7 +32,7 @@ def parse_date(s: str) -> dt.date:
 def print_report(rep):
     for k, v in rep["sessions"].items():
         print(f"  {k}盤 TX {v.get('expiry')}：{v['label']}  收 {v.get('close')} ({v.get('pct')}%)")
-    sig = rep["signals"]
+    sig = [s for s in rep["signals"] if s.get("above_min", True)]
     ok_ = lambda s: s["feasible"] and s["riskless"] and s.get("quality") == "可靠"
     print(f"  訊號 {len(sig)} 筆：可成交無風險且報價可靠 {sum(ok_(s) for s in sig)}、"
           f"報價存疑 {sum(s['feasible'] and s['riskless'] and s.get('quality') == '存疑' for s in sig)}、"

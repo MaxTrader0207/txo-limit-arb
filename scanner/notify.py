@@ -32,7 +32,8 @@ def notify_live(z: dict, pages_url: str = "") -> bool:
 
 def notify(rep: dict, pages_url: str = "") -> bool:
     token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
-    feas = [s for s in rep["signals"] if s["feasible"] and s["riskless"] and s.get("quality", "可靠") == "可靠"]
+    from .pipeline import is_actionable
+    feas = [s for s in rep["signals"] if is_actionable(s)]
     if not (token and chat) or not (rep["limit_event"] or feas):
         return False
     lines = [f"📊 TXO 週選套利掃描 {rep['date']}"]

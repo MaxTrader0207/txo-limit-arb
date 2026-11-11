@@ -77,7 +77,8 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex
             if f1 and f2 and d2 > d1 and abs(f2 / f1 - 1) <= cfg["cal_max_fwd_diff"]:
                 signals += scan_calendar(c1, c2, e1, e2, sess, f1, f2, cfg,
                                          hold_days=max((d1 - date).days, 1), all_strikes=all_strikes)
-    signals.sort(key=lambda s: (not is_actionable(s), not s["feasible"], s.get("quality") == "存疑", -s["edge_pts"]))
+    signals.sort(key=lambda s: (not is_actionable(s), not shown(s), not s["feasible"], s.get("quality") == "存疑",
+                                -s["edge_pts"]))
     used = {(s["hedge"], s["status"]) for s in series}
     return {
         "date": date.isoformat(),
@@ -91,22 +92,28 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex
     }
 
 
+def shown(s: dict) -> bool:
+    """以設定的手續費計算仍達門檻（後端另外保存了「調低手續費才達標」的訊號給前端）。"""
+    return s.get("above_min", True)
+
+
 def is_actionable(s: dict) -> bool:
-    """可成交、到期鎖定（非基差／跨週別）、報價可靠。"""
-    return s["feasible"] and s["riskless"] and s.get("quality", "可靠") == "可靠"
+    """達門檻、可成交、到期鎖定（非基差／跨週別）、報價可靠。"""
+    return shown(s) and s["feasible"] and s["riskless"] and s.get("quality", "可靠") == "可靠"
 
 
 def summary(rep: dict) -> dict:
     feas = [s for s in rep["signals"] if is_actionable(s)]
+    sig = [s for s in rep["signals"] if shown(s)]
     best = feas[0] if feas else None
     return {
         "date": rep["date"], "limit_event": rep["limit_event"],
         "status": {k: v["status"] for k, v in rep["sessions"].items()},
         "pct": {k: v.get("pct") for k, v in rep["sessions"].items()},
-        "n_signals": len(rep["signals"]), "n_feasible": len(feas),
-        "n_basis": sum(1 for s in rep["signals"] if s.get("nature", "基差") == "基差" and not s["riskless"]),
-        "n_doubtful": sum(1 for s in rep["signals"] if s["feasible"] and s["riskless"] and s.get("quality") == "存疑"),
-        "n_calendar": sum(1 for s in rep["signals"] if s.get("nature") == "跨週別" and s.get("quality") == "可靠"),
+        "n_signals": sum(1 for s in sig), "n_feasible": len(feas),
+        "n_basis": sum(1 for s in sig if s.get("nature", "基差") == "基差" and not s["riskless"]),
+        "n_doubtful": sum(1 for s in sig if s["feasible"] and s["riskless"] and s.get("quality") == "存疑"),
+        "n_calendar": sum(1 for s in sig if s.get("nature") == "跨週別" and s.get("quality") == "可靠"),
         "best": {k: best[k] for k in ("type", "expiry", "edge_pts", "legs")} if best else None,
         "expiry": expiry_summary(rep.get("expiry_sell")),
     }
