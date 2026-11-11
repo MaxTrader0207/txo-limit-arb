@@ -50,8 +50,8 @@ jobs:
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -80,8 +80,8 @@ jobs:
           for i in 1 2 3; do git pull --rebase && git push && exit 0; sleep 5; done
           exit 1
 
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: docs
 
@@ -93,4 +93,4 @@ jobs:
       url: ${{ steps.dep.outputs.page_url }}
     steps:
       - id: dep
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

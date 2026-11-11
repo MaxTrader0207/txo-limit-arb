@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections import defaultdict
 import json
 from pathlib import Path
 
 from . import taifex, twse
 from .expiry_sell import analyze_expiry
-from .checks import scan_chain
+from .checks import scan_calendar, scan_chain
 from .config import TPE
 from .market import (LIMIT_EVENTS, num, ok, build_chains, expiry_dates, front_futures, fut_settle_date, hedge_contracts,
                      hedge_for, implied_forward, limit_status)
@@ -33,6 +34,7 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex
 
     chains = build_chains(opt, cfg["include_monthly"])
     series, signals, expired = [], [], []
+    scanned: dict[str, list] = defaultdict(list)
     for (exp, sess), ch in sorted(chains.items(), key=lambda x: (exp_dates.get(x[0][0], dt.date.max), x[0][1])):
         opt_settle = exp_dates.get(exp)
         if opt_settle and opt_settle <= date:
@@ -66,7 +68,16 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex
         })
         signals += scan_chain(ch, exp, sess, F, mkt["status"], cfg, all_strikes, hedge,
                               hold_days=max((opt_settle - date).days, 1))
-    signals.sort(key=lambda s: (not (s["feasible"] and s["riskless"]), not s["feasible"], -s["edge_pts"]))
+        scanned[sess].append((opt_settle, exp, ch, fwd))
+
+    # 跨週別：同時段、結算日相鄰的兩個序列（都要有隱含期貨價）
+    for sess, lst in scanned.items():
+        lst.sort(key=lambda x: x[0])
+        for (d1, e1, c1, f1), (d2, e2, c2, f2) in zip(lst, lst[1:]):
+            if f1 and f2 and d2 > d1 and abs(f2 / f1 - 1) <= cfg["cal_max_fwd_diff"]:
+                signals += scan_calendar(c1, c2, e1, e2, sess, f1, f2, cfg,
+                                         hold_days=max((d1 - date).days, 1), all_strikes=all_strikes)
+    signals.sort(key=lambda s: (not is_actionable(s), not s["feasible"], s.get("quality") == "存疑", -s["edge_pts"]))
     used = {(s["hedge"], s["status"]) for s in series}
     return {
         "date": date.isoformat(),
@@ -80,15 +91,22 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex
     }
 
 
+def is_actionable(s: dict) -> bool:
+    """可成交、到期鎖定（非基差／跨週別）、報價可靠。"""
+    return s["feasible"] and s["riskless"] and s.get("quality", "可靠") == "可靠"
+
+
 def summary(rep: dict) -> dict:
-    feas = [s for s in rep["signals"] if s["feasible"] and s["riskless"]]
+    feas = [s for s in rep["signals"] if is_actionable(s)]
     best = feas[0] if feas else None
     return {
         "date": rep["date"], "limit_event": rep["limit_event"],
         "status": {k: v["status"] for k, v in rep["sessions"].items()},
         "pct": {k: v.get("pct") for k, v in rep["sessions"].items()},
         "n_signals": len(rep["signals"]), "n_feasible": len(feas),
-        "n_basis": sum(1 for s in rep["signals"] if not s["riskless"]),
+        "n_basis": sum(1 for s in rep["signals"] if s.get("nature", "基差") == "基差" and not s["riskless"]),
+        "n_doubtful": sum(1 for s in rep["signals"] if s["feasible"] and s["riskless"] and s.get("quality") == "存疑"),
+        "n_calendar": sum(1 for s in rep["signals"] if s.get("nature") == "跨週別" and s.get("quality") == "可靠"),
         "best": {k: best[k] for k in ("type", "expiry", "edge_pts", "legs")} if best else None,
         "expiry": expiry_summary(rep.get("expiry_sell")),
     }

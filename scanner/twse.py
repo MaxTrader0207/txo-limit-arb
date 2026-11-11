@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -95,13 +96,23 @@ def _yahoo_day(date: dt.date) -> dict | None:
             "prev_close": round(float(prev["Close"].iloc[-1]), 2), "source": "Yahoo ^TWII"}
 
 
+def use_twse() -> bool:
+    """TAIEX_SOURCE=twse|yahoo|auto（預設 auto：在 GitHub Actions 上跳過必定被擋的證交所）。"""
+    src = os.environ.get("TAIEX_SOURCE", "auto").lower()
+    if src in ("twse", "yahoo"):
+        return src == "twse"
+    return os.environ.get("GITHUB_ACTIONS") != "true"
+
+
 def day_info(date: dt.date, archive_dir: Path, mode: str = "refresh") -> dict | None:
     """當日 OHLC 與前一交易日收盤；任何一個拿不到就回傳 None。"""
     cache_p = archive_dir / "taiex" / "days.json"
     cache = json.loads(cache_p.read_text("utf-8")) if cache_p.exists() else {}
     base = cache.get(date.isoformat()) if mode != "refresh" else None
     if base is None and mode != "offline":
-        for name, fn in (("TWSE", lambda: _twse_day(date, archive_dir, mode)), ("Yahoo", lambda: _yahoo_day(date))):
+        sources = [("TWSE", lambda: _twse_day(date, archive_dir, mode))] if use_twse() else []
+        sources.append(("Yahoo", lambda: _yahoo_day(date)))
+        for name, fn in sources:
             try:
                 base = fn()
             except Exception as e:                       # 來源失效時改用下一個
@@ -123,10 +134,11 @@ def day_info(date: dt.date, archive_dir: Path, mode: str = "refresh") -> dict | 
 
 def realtime() -> dict | None:
     """盤中加權指數：證交所基本市況報導（約 5 秒更新），失敗改用 Yahoo（可能延遲）。"""
-    try:
-        return _twse_realtime()
-    except Exception as e:
-        print(f"  [警告] 證交所即時指數失敗：{str(e)[:120]}，改用 Yahoo")
+    if use_twse():
+        try:
+            return _twse_realtime()
+        except Exception as e:
+            print(f"  [警告] 證交所即時指數失敗：{str(e)[:120]}，改用 Yahoo")
     import yfinance as yf
     t = yf.Ticker("^TWII")
     h = t.history(period="1d", interval="1m")

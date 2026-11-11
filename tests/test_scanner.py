@@ -279,3 +279,42 @@ def test_catch_up_reruns_missing_and_night_only_days(tmp_path, monkeypatch):
     monkeypatch.setattr(m.time, "sleep", lambda s: None)
     m.catch_up(dt.date(2026, 11, 11), load_config())
     assert calls == [dt.date(2026, 11, 10), dt.date(2026, 11, 6), dt.date(2026, 11, 5), dt.date(2026, 11, 4)]
+
+
+# ---------------------------------------------------------------- 報價可靠性、跨週別
+def _q(b, a, vol=10, oi=10):
+    return {"bid": b, "ask": a, "last": None, "settle": None, "vol": vol, "oi": oi}
+
+
+def test_quality_reasons():
+    from scanner.checks import quality_reasons
+    cfg = load_config()
+    assert quality_reasons([_q(0.1, 0.3), _q(200, 205)], 500, cfg) == []
+    assert quality_reasons([_q(0.2, 20)], None, cfg) == ["有腳買賣價差過寬"]          # 20 − 0.2 > 10 點
+    assert quality_reasons([_q(1000, 1200)], None, cfg) == []                       # 200 < 1100 × 30%
+    assert quality_reasons([_q(3, 4, vol=0, oi=0)], None, cfg) == ["有腳當日無成交也無未平倉"]
+    assert quality_reasons([], 9, cfg) == ["期貨腳當日僅成交 9 口"]
+
+
+def test_doubtful_signals_not_counted():
+    from scanner.pipeline import is_actionable, summary
+    fut, opt = load("synthetic_limitup")
+    rep = analyze(dt.date(2026, 11, 10), fut, opt, load_config())
+    for s in rep["signals"][:3]:
+        s["quality"], s["quality_reasons"] = "存疑", ["有腳買賣價差過寬"]
+    n_ok = sum(is_actionable(s) for s in rep["signals"])
+    sm = summary(rep)
+    assert sm["n_feasible"] == n_ok and sm["n_doubtful"] >= 1
+
+
+def test_calendar_detects_near_dearer_than_far():
+    from scanner.checks import scan_calendar
+    cfg = load_config()
+    near = {44000.0: {"C": _q(10, 11)}, 36000.0: {"P": _q(8, 9)}, 40000.0: {"C": _q(300, 305)}}
+    far = {44400.0: {"C": _q(5, 6)}, 44500.0: {"C": _q(4, 5)}, 36300.0: {"P": _q(12, 13)}, 36400.0: {"P": _q(14, 15)}}
+    sig = scan_calendar(near, far, "202611W2", "202611F2", "一般", 40000, 40400, cfg, hold_days=1)
+    by = {s["type"]: s for s in sig}
+    c = by["Call 跨週別"]                         # 44000 × 1.01 = 44440 → 遠週取 ≤ 44440 最高的 44400
+    assert "C44400@6" in c["legs"] and c["edge_pts"] > 3 and c["nature"] == "跨週別" and not c["riskless"]
+    assert "Put 跨週別" not in by                 # 36000 × 1.01 = 36360 → 遠週取 36400，賣 8 買 15 → 不成立
+    assert all(s["strikes"] != [40000.0] for s in sig)   # 價平不在預設檢查範圍

@@ -175,14 +175,22 @@ def mid(q):
     return None
 
 
-def implied_forward(chain: dict, F: float, n: int = 5):
-    """ATM 附近 n 檔 K + C − P 的中位數。"""
+def _tight(q) -> bool:
+    """買賣兩邊都有報價，且價差 ≤ MAX(10 點, 中價 × 30%)。"""
+    if not q or not ok(q.get("bid")) or not ok(q.get("ask")):
+        return False
+    return q["ask"] - q["bid"] <= max(10.0, 0.3 * (q["ask"] + q["bid"]) / 2)
+
+
+def implied_forward(chain: dict, F: float, n: int = 5, window: float = 0.05, min_pts: int = 3):
+    """由買賣權平價 K + C − P 推算隱含期貨價：只用期貨價 ±5% 內、Call 與 Put 報價都夠緊的履約價，
+    取最接近的 n 檔中位數；不足 min_pts 檔回傳 None（夜盤報價稀疏時常見，寧缺勿濫）。"""
     pts = []
     for k, q in chain.items():
-        cm, pm = mid(q.get("C")), mid(q.get("P"))
-        if cm is not None and pm is not None:
-            pts.append((abs(k - F), k + cm - pm))
-    if not pts:
+        c, p = q.get("C"), q.get("P")
+        if abs(k - F) <= F * window and _tight(c) and _tight(p):
+            pts.append((abs(k - F), k + mid(c) - mid(p)))
+    if len(pts) < min_pts:
         return None
     vals = sorted(v for _, v in sorted(pts)[:n])
     return vals[len(vals) // 2]
