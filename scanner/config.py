@@ -31,7 +31,10 @@ DEFAULTS = {
     "spread_min_move": 0.03,  # 有限風險：賣出點至少距指數收盤 3%，且指數要漲跌超過 3% 才會虧
     "spread_max_sessions": 2, # 價差賣方：距結算最多幾個交易時段（1＝結算前一日）
     "dir_max_sessions": 5,    # 方向性價差：距結算最多幾個交易時段
-    "spread_min_hist": 120,   # 至少要有幾筆歷史漲跌幅，才計算平均損益與虧損機率
+    "spread_min_hist": 120,
+    "ma_periods": [30, 60, 100],   # 均線回檔多頭價差
+    "ma_lookback": 10,
+    "ma_strike_pct": 0.02,   # 至少要有幾筆歷史漲跌幅，才計算平均損益與虧損機率
     "cal_max_fwd_diff": 0.01, # 跨週別：相鄰兩結算日的隱含期貨價相差 > 1% 視為報價失真，不比較
     "include_monthly": True,  # 一併掃最近月選（唯一與 TX 同日結算的序列）
     # 策略二：結算日深價外賣方
@@ -51,6 +54,11 @@ def load_config(**overrides) -> dict:
     for k, v in DEFAULTS.items():
         env = os.environ.get(k.upper())
         if env not in (None, ""):
-            cfg[k] = type(v)(env) if not isinstance(v, bool) else env.lower() in ("1", "true", "yes")
+            if isinstance(v, bool):
+                cfg[k] = env.lower() in ("1", "true", "yes")
+            elif isinstance(v, list):
+                cfg[k] = [type(v[0])(x) for x in env.split(",") if x.strip()]
+            else:
+                cfg[k] = type(v)(env)
     cfg.update({k: v for k, v in overrides.items() if v is not None})
     return cfg

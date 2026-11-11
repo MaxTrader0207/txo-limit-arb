@@ -18,7 +18,8 @@ KEEP_CHAIN_DAYS = 30   # 只保留最近 N 個交易日的完整選擇權鏈；�
 
 
 def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex: dict | None = None,
-            hist: list[float] | None = None, fsp: dict | None = None) -> dict:
+            hist: list[float] | None = None, fsp: dict | None = None,
+            closes: list | None = None) -> dict:
     exp_dates = expiry_dates(opt)
     # 已發生的結算以期交所公布的最後結算日為準（遇颱風等臨時休市會順延，日行情的到期日欄不一定更新）；
     # 只採用結算日 ≤ 今天的紀錄，避免回測時偷看未來的順延
@@ -100,7 +101,7 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex
         "expiry_sell": analyze_expiry(date, opt, exp_dates, taiex, cfg, fsp),
         "final_settlements": today_finals,
         "spreads": scan_spreads(date, chains, exp_dates, taiex, sessions,
-                                {s["expiry"]: s["implied_fwd"] for s in series if s["session"] == "一般"}, cfg, hist),
+                                {s["expiry"]: s["implied_fwd"] for s in series if s["session"] == "一般"}, cfg, hist, closes),
         "taiex": taiex,
         "settle_rule": "TX、小台（含週三週契約）與 TXO（月選、週三 W1/W2/W4/W5、週五 F）最後結算價皆為到期日 13:00–13:30 加權指數簡單算術平均",
         "config": {k: v for k, v in cfg.items()},
@@ -205,7 +206,8 @@ def run_date(date: dt.date, cfg: dict, data_dir: Path, archive_dir: Path,
     fsp = taifex.load_fsp(archive_dir)
     if mode == "refresh" and any(d == date for d in expiry_dates(opt).values()):
         fsp = taifex.fetch_fsp(archive_dir, date - dt.timedelta(days=40), date)
-    rep = analyze(date, fut, opt, cfg, all_strikes, taiex, twse.history_returns(archive_dir, date), fsp)
+    rep = analyze(date, fut, opt, cfg, all_strikes, taiex, twse.history_returns(archive_dir, date), fsp,
+                  twse.history_closes(archive_dir, date))
     if not rep["series"] and not rep["expiry_sell"] and not rep.get("spreads"):
         print(f"[略過] {date} 沒有可分析的週選序列")
         return None

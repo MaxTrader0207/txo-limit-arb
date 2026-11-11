@@ -141,6 +141,16 @@ def history_returns(archive_dir: Path, before: dt.date) -> list[float]:
     return out
 
 
+def history_closes(archive_dir: Path, upto: dt.date) -> list[tuple[str, float]]:
+    """到 upto（含）為止的加權指數日收盤 [(YYYY-MM-DD, close)]，依日期排序；不含盤中即時值。"""
+    cache_p = archive_dir / "taiex" / "days.json"
+    if not cache_p.exists():
+        return []
+    cache = json.loads(cache_p.read_text("utf-8"))
+    return [(d, cache[d]["close"]) for d in sorted(cache)
+            if d <= upto.isoformat() and cache[d].get("close") and cache[d].get("source") != "TWSE-live"]
+
+
 def use_twse() -> bool:
     """TAIEX_SOURCE=twse|yahoo|auto（預設 auto：在 GitHub Actions 上跳過必定被擋的證交所）。"""
     src = os.environ.get("TAIEX_SOURCE", "auto").lower()

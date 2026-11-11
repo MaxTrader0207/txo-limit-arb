@@ -493,3 +493,49 @@ def test_split_by_date_and_bulk_archive(tmp_path, monkeypatch):
 def test_parse_without_session_column():
     df = taifex.parse("交易日期,契約,到期月份(週別),收盤價\n2015/06/01,TX,201506,9700\n")
     assert df["session"].tolist() == ["一般"]
+
+
+def _closes(vals, start=dt.date(2026, 1, 1)):
+    return [((start + dt.timedelta(days=i)).isoformat(), v) for i, v in enumerate(vals)]
+
+
+def test_ma_trigger_first_break_of_rising_ma():
+    from scanner.spreads import ma_triggers
+    cfg = load_config(ma_periods=[30])
+    up = [10000 + 20 * i for i in range(60)]                 # 穩定上漲：收盤一直在 30MA 之上
+    assert ma_triggers(_closes(up), cfg) == []
+    brk = up + [up[-1] - 400]                                 # 單日大跌跌破，30MA 仍上揚
+    t = ma_triggers(_closes(brk), cfg)
+    assert len(t) == 1 and t[0]["period"] == 30 and t[0]["close"] < t[0]["ma"] and t[0]["ma"] > t[0]["ma_prev"]
+    # 前 10 天內已跌破過 → 不是「首次」
+    again = up[:-5] + [up[-6] - 400] + up[-4:] + [up[-1] - 400]
+    assert ma_triggers(_closes(again), cfg) == []
+    # 均線下彎 → 不觸發
+    down = [12000 - 20 * i for i in range(60)] + [10000]
+    assert ma_triggers(_closes(down), cfg) == []
+
+
+def test_ma_bull_spread_uses_nearest_expiry_and_2pct_strikes():
+    from scanner.spreads import scan_spreads
+    cfg = load_config(ma_periods=[30])
+    up = [10000 + 20 * i for i in range(60)]
+    closes = _closes(up + [up[-1] - 400])
+    date = dt.date.fromisoformat(closes[-1][0])
+    ma = sum(x for _, x in closes[-30:]) / 30
+    strikes = range(9800, 11600, 100)
+    rows = [(k, "C", max(1.0, 10600 - k) + 20, max(1.0, 10600 - k) + 25) for k in strikes]
+    ch = {("W1", "一般"): _chain(rows), ("W2", "一般"): _chain(rows)}
+    exps = {"W1": date + dt.timedelta(days=2), "W2": date + dt.timedelta(days=9)}
+    sp = scan_spreads(date, ch, exps, {"close": closes[-1][1]}, {"一般": {"status": "NORMAL"}}, {}, cfg,
+                      None, closes)
+    assert sp["ma_triggers"] and sp["ma_triggers"][0]["built"]
+    it = sp["ma_bull"][0]
+    assert it["expiry"] == "W1" and it["kind"] == "均線回檔多頭價差" and it["above_min"]
+    (s1, kb, q1), (s2, ks, q2) = it["legs"]
+    assert (s1, q1, s2, q2) == ("C", 1, "C", -1)
+    assert abs(kb - ma * 0.98) <= 50 and abs(ks - ma * 1.02) <= 50
+    assert it["net_pts"] < 0 and it["worst_pts"] < 0           # 借方價差：付權利金
+    # 收盤資料不是今天 → 不觸發
+    sp2 = scan_spreads(date, ch, exps, {"close": closes[-1][1]}, {"一般": {"status": "NORMAL"}}, {}, cfg,
+                       None, closes[:-1])
+    assert sp2["ma_bull"] == [] and sp2["ma_triggers"] == []

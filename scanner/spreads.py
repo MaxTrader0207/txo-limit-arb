@@ -231,12 +231,64 @@ def directional(chain, exp, settle, n, lo, hi, prev, ref, up: bool, cfg):
     return out
 
 
+# ---------------------------------------------------------------- 均線回檔多頭價差
+def ma_triggers(closes: list[tuple[str, float]], cfg: dict) -> list[dict]:
+    """收盤近 lookback 天首次跌破「上揚中」的 N 日均線。closes 最後一筆為今天。
+    條件（各均線獨立）：今日收盤 < MA_t；前 lookback 個交易日收盤皆 ≥ 當日 MA；MA_t > MA_(t-1)。"""
+    out = []
+    lb = cfg["ma_lookback"]
+    c = [x for _, x in closes]
+    for p in cfg["ma_periods"]:
+        if len(c) < p + lb + 1:
+            continue
+        ma = lambda i: sum(c[i - p + 1:i + 1]) / p        # i 為索引，含當日
+        t = len(c) - 1
+        m0, m1 = ma(t), ma(t - 1)
+        if not (c[t] < m0 and m0 > m1):
+            continue
+        if all(c[t - j] >= ma(t - j) for j in range(1, lb + 1)):
+            out.append({"period": p, "ma": round(m0, 2), "ma_prev": round(m1, 2), "close": c[t],
+                        "gap_pct": round((c[t] / m0 - 1) * 100, 2)})
+    return out
+
+
+def _nearest_strike(chain: dict, target: float, side: str, need: str):
+    """最接近 target、且該腳有可成交報價（買看 ask、賣看 bid）的履約價。"""
+    ks = sorted((k for k in chain if ok(((chain[k] or {}).get(side) or {}).get(need))),
+                key=lambda k: (abs(k - target), k))
+    return ks[0] if ks else None
+
+
+def ma_bull(chains: dict, exp_dates: dict, date: dt.date, trig: dict, prev: float, cfg: dict,
+            hist: list[float] | None):
+    """最近結算序列：買 MA×(1−x) 附近 Call、賣 MA×(1+x) 附近 Call。"""
+    cand = sorted((exp_dates[e], e) for (e, s) in chains if s == "一般" and exp_dates.get(e) and exp_dates[e] > date)
+    if not cand:
+        return None
+    t, exp = cand[0]
+    ch = chains[(exp, "一般")]
+    x = cfg["ma_strike_pct"]
+    kb = _nearest_strike(ch, trig["ma"] * (1 - x), "C", "ask")
+    ks = _nearest_strike(ch, trig["ma"] * (1 + x), "C", "bid")
+    if kb is None or ks is None or ks <= kb:
+        return None
+    n = max(sessions_until(date, t), 1)
+    lo, hi = bounds(prev, n, cfg)
+    it = build("均線回檔多頭價差", exp, t, n, [("C", kb, 1), ("C", ks, -1)], ch, lo, hi, prev, cfg,
+               f"收盤 {trig['close']:g} 跌破上揚 {trig['period']}MA {trig['ma']:g}（近 {cfg['ma_lookback']} 日首次）",
+               n_session_returns(hist, n))
+    if it:
+        it["ma"] = trig
+    return it
+
+
 def _top(items, key, n):
     return sorted(items, key=key, reverse=True)[:n]
 
 
 def scan_spreads(date: dt.date, chains: dict, exp_dates: dict, taiex: dict | None, sessions: dict,
-                 fwd: dict, cfg: dict, hist: list[float] | None = None) -> dict | None:
+                 fwd: dict, cfg: dict, hist: list[float] | None = None,
+                 closes: list[tuple[str, float]] | None = None) -> dict | None:
     """chains：{(到期別, 時段): chain}；fwd：{到期別: 一般時段隱含期貨價}。只用一般時段。"""
     if not taiex or not taiex.get("close"):
         return {"error": "取不到加權指數收盤，無法計算結算價上下限"} if chains else None
@@ -244,7 +296,13 @@ def scan_spreads(date: dt.date, chains: dict, exp_dates: dict, taiex: dict | Non
     st = (sessions.get("一般") or {}).get("status", "NORMAL")
     up, down = st in UP_EVENTS, st in DOWN_EVENTS
     top = cfg["spread_top"]
-    groups = {"zero": [], "limited": [], "directional": []}
+    groups = {"zero": [], "limited": [], "directional": [], "ma_bull": []}
+    trig = ma_triggers(closes, cfg) if closes and closes[-1][0] == date.isoformat() else []
+    for tr in trig:
+        it = ma_bull(chains, exp_dates, date, tr, prev, cfg, hist)
+        tr["built"] = bool(it)
+        if it:
+            groups["ma_bull"].append(it)
     eligible = []
     for (exp, sess), ch in chains.items():
         t = exp_dates.get(exp)
@@ -272,9 +330,10 @@ def scan_spreads(date: dt.date, chains: dict, exp_dates: dict, taiex: dict | Non
             groups["directional"] += _top(d, lambda x: x["reward_risk"] or 0, top)
     for lst in groups.values():
         for it in lst:
-            it["above_min"] = it["best_pts"] >= cfg["min_edge"] if it["kind"] != "漲跌停日方向性價差" else True
+            it["above_min"] = it["best_pts"] >= cfg["min_edge"] \
+                if it["kind"] not in ("漲跌停日方向性價差", "均線回檔多頭價差") else True
     return {"prev_close": prev, "taiex_source": taiex.get("source"), "market_status": st,
-            "eligible": eligible, "hist_days": len(hist or []), **groups}
+            "eligible": eligible, "hist_days": len(hist or []), "ma_triggers": trig, **groups}
 
 
 # ---------------------------------------------------------------- 結算後回填
@@ -295,11 +354,11 @@ def spread_summary(sp: dict | None) -> dict | None:
     if not sp or "zero" not in sp:
         return None
     out = {}
-    for g in ("zero", "limited", "directional"):
-        lst = [x for x in sp[g] if x.get("above_min", True)]
+    for g in ("zero", "limited", "directional", "ma_bull"):
+        lst = [x for x in sp.get(g, []) if x.get("above_min", True)]
         firsts, seen = [], set()
         for x in lst:
-            key = (x["expiry"], x["legs"][0][0])
+            key = (x["expiry"], x["legs"][0][0], (x.get("ma") or {}).get("period"))
             if key not in seen:
                 seen.add(key)
                 firsts.append(x)
@@ -327,8 +386,8 @@ def settle_pending(data_dir: Path, settle_date: dt.date, finals: dict, cfg: dict
         if not sp or "zero" not in sp:
             continue
         changed = False
-        for g in ("zero", "limited", "directional"):
-            for it in sp[g]:
+        for g in ("zero", "limited", "directional", "ma_bull"):
+            for it in sp.get(g, []):
                 if it["expiry"] in finals and it.get("realized_pts") is None:
                     realize(it, finals[it["expiry"]], cfg, settle_date.isoformat())
                     changed, n_done = True, n_done + 1
