@@ -181,6 +181,10 @@ def fetch_fsp(archive_dir: Path, start: dt.date, end: dt.date) -> dict:
         r.raise_for_status()
         html = r.text
         got = parse_fsp(html)                         # 頁面預設顯示約最近一年
+        if not got:
+            i = html.find("202611")
+            i = i if i >= 0 else html.find("最後結算日")
+            print("  [最後結算價][除錯] 解析不到資料，表格片段：", repr(html[max(i - 400, 0):i + 600]))
     except (requests.RequestException, ValueError) as e:
         print(f"  [警告] 最後結算價頁面取得失敗：{e}")
     if html and start < dt.date.today() - dt.timedelta(days=300):
