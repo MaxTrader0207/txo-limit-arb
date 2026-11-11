@@ -151,9 +151,8 @@ def parse_fsp(html: str) -> dict:
 def _form_fields(html: str, start: dt.date, end: dt.date) -> tuple[str, dict]:
     """解析查詢表單：年、月下拉選單依出現順序填起、迄；勾選 TXO；保留隱藏欄位。"""
     m = re.search(r"<form[^>]*action=\"([^\"]*)\"", html, re.S | re.I)
-    action = m.group(1) if m else FSP_URL
-    if action.startswith("/"):
-        action = "https://www.taifex.com.tw" + action
+    from urllib.parse import urljoin
+    action = urljoin(FSP_URL, m.group(1)) if m and m.group(1) else FSP_URL
     data, years, months = {}, [], []
     for name, body in re.findall(r"<select[^>]*name=\"([^\"]+)\"[^>]*>(.*?)</select>", html, re.S | re.I):
         vals = re.findall(r"value=\"([^\"]*)\"", body)
@@ -176,25 +175,30 @@ def fetch_fsp(archive_dir: Path, start: dt.date, end: dt.date) -> dict:
     """抓期交所指數選擇權最後結算價並更新快取；失敗時回傳既有快取。"""
     p = archive_dir / "taifex" / "fsp.json"
     cache = json.loads(p.read_text("utf-8")) if p.exists() else {}
+    got, html = {}, ""
     try:
         r = requests.get(FSP_URL, headers=HEADERS, timeout=60)
         r.raise_for_status()
         html = r.text
-        got = parse_fsp(html)
-        if start < dt.date.today() - dt.timedelta(days=300):
+        got = parse_fsp(html)                         # 頁面預設顯示約最近一年
+    except (requests.RequestException, ValueError) as e:
+        print(f"  [警告] 最後結算價頁面取得失敗：{e}")
+    if html and start < dt.date.today() - dt.timedelta(days=300):
+        try:
             action, data = _form_fields(html, start, end)
             if data:
                 r2 = requests.post(action, data=data, headers=HEADERS, timeout=60)
-                if r2.ok:
-                    more = parse_fsp(r2.text)
-                    print(f"  [最後結算價] 查詢 {start:%Y/%m}～{end:%Y/%m} 取得 {len(more)} 筆")
-                    got.update(more)
+                r2.raise_for_status()
+                more = parse_fsp(r2.text)
+                print(f"  [最後結算價] 查詢 {start:%Y/%m}～{end:%Y/%m} 取得 {len(more)} 筆")
+                got.update(more)
+        except (requests.RequestException, ValueError) as e:
+            print(f"  [警告] 最後結算價歷史查詢失敗：{e}")
+    if got:
         cache.update(got)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(cache, ensure_ascii=False, indent=0, sort_keys=True), "utf-8")
-        print(f"  [最後結算價] 共 {len(cache)} 筆（本次 {len(got)} 筆）")
-    except (requests.RequestException, ValueError) as e:
-        print(f"  [警告] 最後結算價取得失敗：{e}")
+    print(f"  [最後結算價] 快取共 {len(cache)} 筆（本次 {len(got)} 筆）")
     return cache
 
 
