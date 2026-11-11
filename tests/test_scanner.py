@@ -539,3 +539,12 @@ def test_ma_bull_spread_uses_nearest_expiry_and_2pct_strikes():
     sp2 = scan_spreads(date, ch, exps, {"close": closes[-1][1]}, {"一般": {"status": "NORMAL"}}, {}, cfg,
                        None, closes[:-1])
     assert sp2["ma_bull"] == [] and sp2["ma_triggers"] == []
+
+
+def test_ma_trigger_min_gap():
+    from scanner.spreads import ma_triggers
+    up = [10000 + 20 * i for i in range(60)]
+    c = _closes(up + [up[-1] - 400])
+    gap = -ma_triggers(c, load_config(ma_periods=[30]))[0]["gap_pct"]
+    assert ma_triggers(c, load_config(ma_periods=[30], ma_min_gap_pct=gap - 0.1))
+    assert ma_triggers(c, load_config(ma_periods=[30], ma_min_gap_pct=gap + 0.1)) == []

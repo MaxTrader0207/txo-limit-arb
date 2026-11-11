@@ -49,6 +49,9 @@ jobs:
       TZ: Asia/Taipei
       ARCHIVE_GIT_FROM: "2025"      # 這年（含）以後的原始檔放 repo；更早的放 GitHub Releases
       GH_TOKEN: ${{ github.token }}
+      # 均線回檔多頭價差參數：到 repo Settings → Secrets and variables → Actions → Variables 設定；空白＝預設
+      MA_PERIODS: ${{ vars.MA_PERIODS }}          # 例：60（只做 60MA）、30,60,100
+      MA_MIN_GAP_PCT: ${{ vars.MA_MIN_GAP_PCT }}  # 例：1（收盤低於均線 1% 以上才進場）
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/

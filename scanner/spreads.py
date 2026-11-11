@@ -234,7 +234,7 @@ def directional(chain, exp, settle, n, lo, hi, prev, ref, up: bool, cfg):
 # ---------------------------------------------------------------- 均線回檔多頭價差
 def ma_triggers(closes: list[tuple[str, float]], cfg: dict) -> list[dict]:
     """收盤近 lookback 天首次跌破「上揚中」的 N 日均線。closes 最後一筆為今天。
-    條件（各均線獨立）：今日收盤 < MA_t；前 lookback 個交易日收盤皆 ≥ 當日 MA；MA_t > MA_(t-1)。"""
+    條件（各均線獨立）：今日收盤 < MA_t ×（1 − ma_min_gap_pct%）；前 lookback 個交易日收盤皆 ≥ 當日 MA；MA_t > MA_(t-1)。"""
     out = []
     lb = cfg["ma_lookback"]
     c = [x for _, x in closes]
@@ -244,7 +244,7 @@ def ma_triggers(closes: list[tuple[str, float]], cfg: dict) -> list[dict]:
         ma = lambda i: sum(c[i - p + 1:i + 1]) / p        # i 為索引，含當日
         t = len(c) - 1
         m0, m1 = ma(t), ma(t - 1)
-        if not (c[t] < m0 and m0 > m1):
+        if not (c[t] < m0 * (1 - cfg.get("ma_min_gap_pct", 0) / 100) and m0 > m1):
             continue
         if all(c[t - j] >= ma(t - j) for j in range(1, lb + 1)):
             out.append({"period": p, "ma": round(m0, 2), "ma_prev": round(m1, 2), "close": c[t],
