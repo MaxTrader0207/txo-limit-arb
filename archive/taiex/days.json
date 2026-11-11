@@ -21615,6 +21615,446 @@
 "prev_close": 23190.2,
 "source": "Yahoo ^TWII"
 },
+"2025-01-02": {
+"close": 22832.06,
+"high": 23038.08,
+"low": 22713.63,
+"open": 22975.71,
+"prev_close": 23035.1,
+"source": "Yahoo ^TWII"
+},
+"2025-01-03": {
+"close": 22908.3,
+"high": 23092.07,
+"low": 22905.4,
+"open": 23018.56,
+"prev_close": 22832.06,
+"source": "Yahoo ^TWII"
+},
+"2025-01-06": {
+"close": 23547.71,
+"high": 23553.29,
+"low": 23131.79,
+"open": 23131.79,
+"prev_close": 22908.3,
+"source": "Yahoo ^TWII"
+},
+"2025-01-07": {
+"close": 23651.27,
+"high": 23943.95,
+"low": 23651.27,
+"open": 23824.72,
+"prev_close": 23547.71,
+"source": "Yahoo ^TWII"
+},
+"2025-01-08": {
+"close": 23407.33,
+"high": 23671.28,
+"low": 23388.63,
+"open": 23522.29,
+"prev_close": 23651.27,
+"source": "Yahoo ^TWII"
+},
+"2025-01-09": {
+"close": 23081.13,
+"high": 23463.96,
+"low": 23081.13,
+"open": 23406.72,
+"prev_close": 23407.33,
+"source": "Yahoo ^TWII"
+},
+"2025-01-10": {
+"close": 23011.86,
+"high": 23202.25,
+"low": 22989.67,
+"open": 23067.46,
+"prev_close": 23081.13,
+"source": "Yahoo ^TWII"
+},
+"2025-01-13": {
+"close": 22488.33,
+"high": 23070.32,
+"low": 22458.22,
+"open": 23070.32,
+"prev_close": 23011.86,
+"source": "Yahoo ^TWII"
+},
+"2025-01-14": {
+"close": 22797.52,
+"high": 22797.52,
+"low": 22542.93,
+"open": 22573.96,
+"prev_close": 22488.33,
+"source": "Yahoo ^TWII"
+},
+"2025-01-15": {
+"close": 22514.57,
+"high": 22777.34,
+"low": 22509.65,
+"open": 22757.46,
+"prev_close": 22797.52,
+"source": "Yahoo ^TWII"
+},
+"2025-01-16": {
+"close": 23025.1,
+"high": 23147.69,
+"low": 22817.52,
+"open": 22817.52,
+"prev_close": 22514.57,
+"source": "Yahoo ^TWII"
+},
+"2025-01-17": {
+"close": 23148.08,
+"high": 23209.88,
+"low": 22905.53,
+"open": 23190.12,
+"prev_close": 23025.1,
+"source": "Yahoo ^TWII"
+},
+"2025-01-20": {
+"close": 23266.82,
+"high": 23346.64,
+"low": 23176.43,
+"open": 23203.47,
+"prev_close": 23148.08,
+"source": "Yahoo ^TWII"
+},
+"2025-01-21": {
+"close": 23300.01,
+"high": 23377.64,
+"low": 23174.02,
+"open": 23266.82,
+"prev_close": 23266.82,
+"source": "Yahoo ^TWII"
+},
+"2025-01-22": {
+"close": 23525.41,
+"high": 23642.08,
+"low": 23472.67,
+"open": 23472.67,
+"prev_close": 23300.01,
+"source": "Yahoo ^TWII"
+},
+"2025-02-03": {
+"close": 22694.71,
+"high": 22796.71,
+"low": 22502.2,
+"open": 22796.71,
+"prev_close": 23525.41,
+"source": "Yahoo ^TWII"
+},
+"2025-02-04": {
+"close": 22793.96,
+"high": 22934.31,
+"low": 22720.62,
+"open": 22836.27,
+"prev_close": 22694.71,
+"source": "Yahoo ^TWII"
+},
+"2025-02-05": {
+"close": 23161.58,
+"high": 23249.33,
+"low": 22916.38,
+"open": 22916.38,
+"prev_close": 22793.96,
+"source": "Yahoo ^TWII"
+},
+"2025-02-06": {
+"close": 23316.6,
+"high": 23348.42,
+"low": 23216.65,
+"open": 23226.5,
+"prev_close": 23161.58,
+"source": "Yahoo ^TWII"
+},
+"2025-02-07": {
+"close": 23478.27,
+"high": 23478.27,
+"low": 23254.17,
+"open": 23289.97,
+"prev_close": 23316.6,
+"source": "Yahoo ^TWII"
+},
+"2025-02-10": {
+"close": 23252.14,
+"high": 23448.16,
+"low": 23163.85,
+"open": 23421.77,
+"prev_close": 23478.27,
+"source": "Yahoo ^TWII"
+},
+"2025-02-11": {
+"close": 23384.05,
+"high": 23485.51,
+"low": 23289.76,
+"open": 23321.92,
+"prev_close": 23252.14,
+"source": "Yahoo ^TWII"
+},
+"2025-02-12": {
+"close": 23289.75,
+"high": 23528.61,
+"low": 23289.75,
+"open": 23449.31,
+"prev_close": 23384.05,
+"source": "Yahoo ^TWII"
+},
+"2025-02-13": {
+"close": 23399.41,
+"high": 23413.1,
+"low": 23206.45,
+"open": 23263.28,
+"prev_close": 23289.75,
+"source": "Yahoo ^TWII"
+},
+"2025-02-14": {
+"close": 23152.61,
+"high": 23276.24,
+"low": 23142.95,
+"open": 23198.39,
+"prev_close": 23399.41,
+"source": "Yahoo ^TWII"
+},
+"2025-02-17": {
+"close": 23505.33,
+"high": 23510.68,
+"low": 23242.84,
+"open": 23258.17,
+"prev_close": 23152.61,
+"source": "Yahoo ^TWII"
+},
+"2025-02-18": {
+"close": 23666.11,
+"high": 23666.11,
+"low": 23454.09,
+"open": 23550.5,
+"prev_close": 23505.33,
+"source": "Yahoo ^TWII"
+},
+"2025-02-19": {
+"close": 23604.08,
+"high": 23683.46,
+"low": 23550.99,
+"open": 23589.44,
+"prev_close": 23666.11,
+"source": "Yahoo ^TWII"
+},
+"2025-02-20": {
+"close": 23487.46,
+"high": 23576.71,
+"low": 23400.75,
+"open": 23530.97,
+"prev_close": 23604.08,
+"source": "Yahoo ^TWII"
+},
+"2025-02-21": {
+"close": 23730.25,
+"high": 23732.58,
+"low": 23488.42,
+"open": 23526.13,
+"prev_close": 23487.46,
+"source": "Yahoo ^TWII"
+},
+"2025-02-24": {
+"close": 23565.31,
+"high": 23605.22,
+"low": 23461.43,
+"open": 23573.8,
+"prev_close": 23730.25,
+"source": "Yahoo ^TWII"
+},
+"2025-02-25": {
+"close": 23285.72,
+"high": 23376.42,
+"low": 23209.53,
+"open": 23376.42,
+"prev_close": 23565.31,
+"source": "Yahoo ^TWII"
+},
+"2025-02-26": {
+"close": 23402.55,
+"high": 23431.24,
+"low": 23156.02,
+"open": 23221.84,
+"prev_close": 23285.72,
+"source": "Yahoo ^TWII"
+},
+"2025-02-27": {
+"close": 23053.18,
+"high": 23487.73,
+"low": 23053.18,
+"open": 23446.46,
+"prev_close": 23402.55,
+"source": "Yahoo ^TWII"
+},
+"2025-03-03": {
+"close": 22756.25,
+"high": 22775.02,
+"low": 22611.1,
+"open": 22734.05,
+"prev_close": 23053.18,
+"source": "Yahoo ^TWII"
+},
+"2025-03-04": {
+"close": 22596.88,
+"high": 22700.94,
+"low": 22359.5,
+"open": 22508.8,
+"prev_close": 22756.25,
+"source": "Yahoo ^TWII"
+},
+"2025-03-05": {
+"close": 22871.9,
+"high": 22948.3,
+"low": 22757.22,
+"open": 22778.86,
+"prev_close": 22596.88,
+"source": "Yahoo ^TWII"
+},
+"2025-03-06": {
+"close": 22715.43,
+"high": 22979.97,
+"low": 22715.43,
+"open": 22930.11,
+"prev_close": 22871.9,
+"source": "Yahoo ^TWII"
+},
+"2025-03-07": {
+"close": 22576.07,
+"high": 22747.11,
+"low": 22542.08,
+"open": 22696.23,
+"prev_close": 22715.43,
+"source": "Yahoo ^TWII"
+},
+"2025-03-10": {
+"close": 22459.15,
+"high": 22641.25,
+"low": 22407.57,
+"open": 22548.98,
+"prev_close": 22576.07,
+"source": "Yahoo ^TWII"
+},
+"2025-03-11": {
+"close": 22071.09,
+"high": 22140.39,
+"low": 21769.57,
+"open": 22126.06,
+"prev_close": 22459.15,
+"source": "Yahoo ^TWII"
+},
+"2025-03-12": {
+"close": 22278.36,
+"high": 22391.47,
+"low": 22153.61,
+"open": 22171.1,
+"prev_close": 22071.09,
+"source": "Yahoo ^TWII"
+},
+"2025-03-13": {
+"close": 21961.68,
+"high": 22552.43,
+"low": 21961.68,
+"open": 22403.34,
+"prev_close": 22278.36,
+"source": "Yahoo ^TWII"
+},
+"2025-03-14": {
+"close": 21968.05,
+"high": 22074.03,
+"low": 21895.9,
+"open": 21986.81,
+"prev_close": 21961.68,
+"source": "Yahoo ^TWII"
+},
+"2025-03-17": {
+"close": 22118.63,
+"high": 22306.83,
+"low": 22110.08,
+"open": 22137.53,
+"prev_close": 21968.05,
+"source": "Yahoo ^TWII"
+},
+"2025-03-18": {
+"close": 22271.67,
+"high": 22327.1,
+"low": 22186.42,
+"open": 22204.62,
+"prev_close": 22118.63,
+"source": "Yahoo ^TWII"
+},
+"2025-03-19": {
+"close": 21960.83,
+"high": 22247.66,
+"low": 21942.69,
+"open": 22245.42,
+"prev_close": 22271.67,
+"source": "Yahoo ^TWII"
+},
+"2025-03-20": {
+"close": 22377.26,
+"high": 22377.26,
+"low": 22171.0,
+"open": 22171.0,
+"prev_close": 21960.83,
+"source": "Yahoo ^TWII"
+},
+"2025-03-21": {
+"close": 22209.1,
+"high": 22366.95,
+"low": 22200.23,
+"open": 22362.38,
+"prev_close": 22377.26,
+"source": "Yahoo ^TWII"
+},
+"2025-03-24": {
+"close": 22106.64,
+"high": 22380.73,
+"low": 22106.64,
+"open": 22348.38,
+"prev_close": 22209.1,
+"source": "Yahoo ^TWII"
+},
+"2025-03-25": {
+"close": 22273.19,
+"high": 22414.02,
+"low": 22228.68,
+"open": 22269.37,
+"prev_close": 22106.64,
+"source": "Yahoo ^TWII"
+},
+"2025-03-26": {
+"close": 22260.29,
+"high": 22398.12,
+"low": 22235.89,
+"open": 22327.61,
+"prev_close": 22273.19,
+"source": "Yahoo ^TWII"
+},
+"2025-03-27": {
+"close": 21951.76,
+"high": 22093.2,
+"low": 21919.4,
+"open": 22093.2,
+"prev_close": 22260.29,
+"source": "Yahoo ^TWII"
+},
+"2025-03-28": {
+"close": 21602.89,
+"high": 21836.16,
+"low": 21525.05,
+"open": 21836.16,
+"prev_close": 21951.76,
+"source": "Yahoo ^TWII"
+},
+"2025-03-31": {
+"close": 20695.9,
+"high": 21254.63,
+"low": 20695.9,
+"open": 21254.63,
+"prev_close": 21602.89,
+"source": "Yahoo ^TWII"
+},
 "2025-04-01": {
 "close": 21280.17,
 "high": 21315.52,
