@@ -450,3 +450,10 @@ def test_expiry_sell_prefers_official_final_settlement():
                         {"202611W1": {"date": "2026-11-04", "price": 42978.0}})
     s = es["series"][0]
     assert s["final_settle"] == 42978.0 and not s["settle_approx"] and s["settle_source"] == "期交所最後結算價"
+
+
+def test_parse_final_settlement_uppercase_tags():
+    html = ('<TR bgcolor="#FFFFFF" class="12bk">\r\n\t\t<TD width="14%" align=middle>2026/11/06</TD>\r\n'
+            '\t\t<TD width="10%" align=middle>202611F1</TD>\r\n\t<TD width="10%" align=right>39824</TD>\r\n'
+            '\t<TD width="10%" align=right>-</TD></TR>')
+    assert taifex.parse_fsp(html) == {"202611F1": {"date": "2026-11-06", "price": 39824.0}}

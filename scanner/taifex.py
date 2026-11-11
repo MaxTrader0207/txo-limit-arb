@@ -138,7 +138,7 @@ def _load_optional(kind: str, date: dt.date, archive_dir: Path, mode: str) -> pd
 # 要從期交所「指數選擇權最後結算價」頁取得。結果快取在 archive/taifex/fsp.json：{到期別: {"date", "price"}}。
 FSP_URL = "https://www.taifex.com.tw/cht/12/optIndxFSP"
 _ROW = re.compile(r"(\d{4}/\d{2}/\d{2})\s*</t[dh]>\s*<t[dh][^>]*>\s*(\d{6}(?:[WF]\d)?)\s*</t[dh]>\s*<t[dh][^>]*>\s*([\d,.]+)",
-                  re.S)
+                  re.S | re.I)
 
 
 def parse_fsp(html: str) -> dict:
