@@ -20,6 +20,15 @@ KEEP_CHAIN_DAYS = 30   # 只保留最近 N 個交易日的完整選擇權鏈；�
 def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex: dict | None = None,
             hist: list[float] | None = None, fsp: dict | None = None) -> dict:
     exp_dates = expiry_dates(opt)
+    # 已發生的結算以期交所公布的最後結算日為準（遇颱風等臨時休市會順延，日行情的到期日欄不一定更新）；
+    # 只採用結算日 ≤ 今天的紀錄，避免回測時偷看未來的順延
+    today_finals = {}
+    for code, v in (fsp or {}).items():
+        d = dt.date.fromisoformat(v["date"])
+        if d <= date and (code in exp_dates or d == date):
+            exp_dates[code] = d
+        if d == date:
+            today_finals[code] = v["price"]
 
     # 每個時段、每口對沖用期貨（小台月＋週契約）：狀態 + 實際結算日
     futs: dict[str, list[dict]] = {}
@@ -89,6 +98,7 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex
                        or any(st in LIMIT_EVENTS for _, st in used),
         "sessions": sessions, "series": series, "signals": signals, "expired_today": expired,
         "expiry_sell": analyze_expiry(date, opt, exp_dates, taiex, cfg, fsp),
+        "final_settlements": today_finals,
         "spreads": scan_spreads(date, chains, exp_dates, taiex, sessions,
                                 {s["expiry"]: s["implied_fwd"] for s in series if s["session"] == "一般"}, cfg, hist),
         "taiex": taiex,
@@ -154,6 +164,7 @@ def write(rep: dict, data_dir: Path) -> None:
     es = rep.get("expiry_sell") or {}
     finals = {s["expiry"]: s["final_settle"] for s in es.get("series", [])
               if s.get("final_settle") and not s.get("settle_approx") and not s.get("warnings")}
+    finals.update(rep.get("final_settlements") or {})     # 期交所公布值優先
     if finals:
         n = settle_pending(data_dir, dt.date.fromisoformat(rep["date"]), finals, rep["config"], dump)
         if n:

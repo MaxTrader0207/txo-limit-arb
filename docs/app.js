@@ -312,7 +312,7 @@ function spreadTable(group, items) {
       <td class="n">${x.loss_prob === null ? "-" : x.loss_prob + "%"}</td>
       <td class="n ${a.ev > 0 ? "yes" : "no"}">${a.ev === null ? "-" : fmt(a.ev * a.pv, 0)}</td>
       <td class="n">${fmt(a.evPer, 1)}</td>
-      <td class="n ${a.real > 0 ? "yes" : a.real < 0 ? "no" : ""}">${a.real === null ? "未結算" : fmt(a.real * a.pv, 0)}</td></tr>`; }).join("") +
+      <td class="n ${a.real > 0 ? "yes" : a.real < 0 ? "no" : ""}">${a.real === null ? "未結算" : fmt(a.real * a.pv, 0)}${x.postponed_to ? `<div class="mut no">結算順延至 ${esc(x.postponed_to.slice(5))}</div>` : ""}</td></tr>`; }).join("") +
     `</table></div>`;
 }
 

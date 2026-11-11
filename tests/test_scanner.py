@@ -457,3 +457,15 @@ def test_parse_final_settlement_uppercase_tags():
             '\t\t<TD width="10%" align=middle>202611F1</TD>\r\n\t<TD width="10%" align=right>39824</TD>\r\n'
             '\t<TD width="10%" align=right>-</TD></TR>')
     assert taifex.parse_fsp(html) == {"202611F1": {"date": "2026-11-06", "price": 39824.0}}
+
+
+def test_postponed_settlement_uses_official_date_without_lookahead():
+    """10/23 臨時休市、F4 順延到 10/27：10/27 當天要認得 F4 結算；10/22 回測時不可預知順延。"""
+    from scanner.pipeline import analyze
+    fut, opt = load("taifex_20261110")
+    fsp = {"202611F2": {"date": "2026-11-16", "price": 40000.0}}       # 假設順延到下週一
+    rep_before = analyze(dt.date(2026, 11, 10), fut, opt, load_config(), fsp=fsp)
+    f2 = next(s for s in rep_before["series"] if s["expiry"] == "202611F2" and s["session"] == "一般")
+    assert f2["opt_settle"] == "2026-11-13" and rep_before["final_settlements"] == {}
+    rep_on = analyze(dt.date(2026, 11, 16), fut, opt, load_config(), fsp=fsp)
+    assert rep_on["final_settlements"] == {"202611F2": 40000.0}

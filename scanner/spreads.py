@@ -278,8 +278,10 @@ def scan_spreads(date: dt.date, chains: dict, exp_dates: dict, taiex: dict | Non
 
 
 # ---------------------------------------------------------------- 結算後回填
-def realize(item: dict, S: float, cfg: dict) -> None:
+def realize(item: dict, S: float, cfg: dict, settled_on: str | None = None) -> None:
     legs = [tuple(x) for x in item["legs"]]
+    if settled_on and settled_on != item.get("settle_date"):
+        item["postponed_to"] = settled_on      # 臨時休市順延：進場時算的上下限不再保證
     itm = itm_count(legs, S)
     pnl = item["net_pts"] + payoff(legs, S) - item["open_cost"] - settle_cost(S, cfg, itm)
     item["realized_pts"] = round(pnl, 2)
@@ -328,7 +330,7 @@ def settle_pending(data_dir: Path, settle_date: dt.date, finals: dict, cfg: dict
         for g in ("zero", "limited", "directional"):
             for it in sp[g]:
                 if it["expiry"] in finals and it.get("realized_pts") is None:
-                    realize(it, finals[it["expiry"]], cfg)
+                    realize(it, finals[it["expiry"]], cfg, settle_date.isoformat())
                     changed, n_done = True, n_done + 1
         if changed:
             p.write_text(dump(rep), "utf-8")
