@@ -28,6 +28,7 @@
   <button data-tab="signals" class="on">套利訊號</button>
   <button data-tab="chain">選擇權鏈</button>
   <button data-tab="expiry">結算日賣方</button>
+  <button data-tab="spreads">價差策略</button>
   <button data-tab="history">歷史紀錄</button>
 </nav>
 
@@ -63,6 +64,18 @@
   所以結算價必在「前日收盤 ×0.9 ～ ×1.1」之內（再外推 0.2% 緩衝）。零風險區＝Call 履約價高於上限、Put 低於下限，到期必歸零；
   低風險區＝指數漲停日 Put 履約價 ≤ 前日收盤（跌停日反之 Call）。損益以當日最後成交價賣出、扣手續費與稅、按最後結算價計算，
   屬事後驗證；賣方需保證金。</p>
+</section>
+
+<section id="tab-spreads" class="tab" hidden>
+  <div id="spreadBox"></div>
+  <h3>歷史績效（每個序列、每一邊取排名第一的組合；預設手續費）</h3>
+  <div id="spreadTotals"></div>
+  <div class="wrap"><table id="spreadHist"></table></div>
+  <p class="mut">原理：結算價＝結算日 13:00–13:30 加權指數均價，成分股單日漲跌幅 ±10%，所以距結算還有 n 個交易時段時，
+  結算價必在「今日指數收盤 × 0.9ⁿ ～ × 1.1ⁿ」（再外推 0.2%）之內，區間內每組價差的最大虧損都能精確算出。
+  報價用今日一般時段收盤最佳買賣價（賣用買價、買用賣價），訊號於收盤後產生，可於夜盤或結算日早上參考，實際報價會變動。
+  最壞情況已含結算時價內腳的手續費與稅。「歷史」欄以進場日之前的指數實際漲跌幅分布估計，只是參考，不代表未來。
+  方向性價差是順勢交易，不是套利。</p>
 </section>
 
 <section id="tab-history" class="tab" hidden>

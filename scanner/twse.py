@@ -96,6 +96,51 @@ def _yahoo_day(date: dt.date) -> dict | None:
             "prev_close": round(float(prev["Close"].iloc[-1]), 2), "source": "Yahoo ^TWII"}
 
 
+def ensure_history(dates, archive_dir: Path) -> int:
+    """回測前一次補齊加權指數日資料（Yahoo），寫進 archive/taiex/days.json；取不到就略過。"""
+    cache_p = archive_dir / "taiex" / "days.json"
+    cache = json.loads(cache_p.read_text("utf-8")) if cache_p.exists() else {}
+    missing = sorted(d for d in dates if d.isoformat() not in cache)
+    if not missing:
+        return 0
+    try:
+        import yfinance as yf
+        h = yf.Ticker("^TWII").history(start=missing[0] - dt.timedelta(days=20),
+                                       end=missing[-1] + dt.timedelta(days=1), interval="1d", auto_adjust=False)
+    except Exception as e:
+        print(f"  [警告] 補齊加權指數歷史失敗：{str(e)[:120]}")
+        return 0
+    if h.empty:
+        return 0
+    rows = [(i.date(), r) for i, r in h.iterrows()]
+    n = 0
+    for (d0, r0), (d1, r1) in zip(rows, rows[1:]):
+        if d1.isoformat() in cache or d1 not in set(missing):
+            continue
+        cache[d1.isoformat()] = {"open": round(float(r1["Open"]), 2), "high": round(float(r1["High"]), 2),
+                                 "low": round(float(r1["Low"]), 2), "close": round(float(r1["Close"]), 2),
+                                 "prev_close": round(float(r0["Close"]), 2), "source": "Yahoo ^TWII"}
+        n += 1
+    cache_p.parent.mkdir(parents=True, exist_ok=True)
+    cache_p.write_text(json.dumps(cache, ensure_ascii=False, indent=0, sort_keys=True), "utf-8")
+    print(f"  補齊加權指數 {n} 天")
+    return n
+
+
+def history_returns(archive_dir: Path, before: dt.date) -> list[float]:
+    """進場日之前每個交易日的指數漲跌幅（收盤 ÷ 前一日收盤 − 1），依日期排序；只用過去資料。"""
+    cache_p = archive_dir / "taiex" / "days.json"
+    if not cache_p.exists():
+        return []
+    cache = json.loads(cache_p.read_text("utf-8"))
+    out = []
+    for d in sorted(cache):
+        v = cache[d]
+        if d < before.isoformat() and v.get("close") and v.get("prev_close") and v.get("source") != "TWSE-live":
+            out.append(v["close"] / v["prev_close"] - 1)
+    return out
+
+
 def use_twse() -> bool:
     """TAIEX_SOURCE=twse|yahoo|auto（預設 auto：在 GitHub Actions 上跳過必定被擋的證交所）。"""
     src = os.environ.get("TAIEX_SOURCE", "auto").lower()

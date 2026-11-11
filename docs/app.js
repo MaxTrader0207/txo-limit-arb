@@ -49,7 +49,7 @@ function onFee() {
   FEE.opt = Math.max(lo, Number($("#feeOpt").value) || REP.config.opt_fee);
   FEE.fut = Math.max(lo, Number($("#feeFut").value) || REP.config.fut_fee);
   try { localStorage.setItem("txoFees", JSON.stringify(FEE)); } catch (e) { /* 無法儲存就算了 */ }
-  renderSignals(); renderExpiry();
+  renderSignals(); renderExpiry(); renderSpreads();
 }
 
 async function getJSON(url) {
@@ -79,6 +79,7 @@ async function init() {
   $("#date").onchange = () => loadDay($("#date").value);
   renderHistory();
   renderExpHist();
+  renderSpreadHist();
   renderLive();
   await loadDay($("#date").value);
 }
@@ -95,6 +96,7 @@ async function loadDay(date) {
   renderSeriesSelect();
   renderChain();
   renderExpiry();
+  renderSpreads();
 }
 
 function zoneTable(raw) {
@@ -274,6 +276,82 @@ function renderHistory() {
     }).join("");
   document.querySelectorAll("#histTable tr.click").forEach((tr) => tr.onclick = () => {
     $("#date").value = tr.dataset.date; loadDay(tr.dataset.date); switchTab("signals");
+  });
+}
+
+// ---------------------------------------------------------------- 策略三：價差
+const SPREAD_GROUPS = [
+  ["zero", "零風險價差賣方", "兩腳都在結算價區間外，到期必歸零；買保護只為了把保證金從裸賣 B 值降到價差寬度"],
+  ["limited", "有限風險價差賣方", "賣出點在區間內，最大虧損＝區間內最壞情況；指數要漲跌超過損平點才會虧"],
+  ["directional", "漲跌停日方向性價差", "期貨鎖漲跌停時順勢買進借方價差，最大虧損＝付出的權利金（方向性，非套利）"],
+];
+
+function adjSpread(x) {
+  const pv = REP.config.point_value || 50, d = feeDelta(1, 0);
+  const f = (pts, sides) => (pts === null || pts === undefined ? null : pts + (sides || 0) * d);
+  const best = f(x.best_pts, x.best_sides), worst = f(x.worst_pts, x.worst_sides);
+  const ev = f(x.ev_pts, x.ev_sides), real = f(x.realized_pts, x.realized_sides);
+  const per = (p) => (p === null || x.capital < 1000 ? null : p * pv / x.capital * 10000);
+  return { best, worst, ev, real, per: per(best), evPer: per(ev), pv };
+}
+
+function spreadTable(group, items) {
+  const minEdge = REP.config.min_edge ?? 1;
+  const rows = items.filter((x) => group === "directional" || adjSpread(x).best >= minEdge);
+  if (!rows.length) return `<div class="empty">以目前手續費，今日沒有符合條件的組合</div>`;
+  const md = (d) => d.slice(5).replace("-", "/");
+  return `<div class="wrap"><table><tr><th>序列</th><th>結算</th><th>組合</th><th>${group === "directional" ? "付出" : "淨收"}(點)</th>
+    <th>最好(元)</th><th>最壞(元)</th><th>所需資金(元)</th><th>每萬元(最好)</th><th>損平漲跌</th>
+    <th>歷史虧損機率</th><th>歷史平均(元)</th><th>每萬元(平均)</th><th>實際結算(元)</th></tr>` +
+    rows.map((x) => { const a = adjSpread(x); return `<tr>
+      <td>${esc(x.expiry)}</td><td>${md(x.settle_date)}（${x.sessions} 時段）</td><td>${esc(x.desc)}</td>
+      <td class="n">${fmt(Math.abs(x.net_pts), 1)}</td>
+      <td class="n yes">${fmt(a.best * a.pv, 0)}</td><td class="n ${a.worst < 0 ? "no" : "yes"}">${fmt(a.worst * a.pv, 0)}</td>
+      <td class="n">${fmt(x.capital, 0)}</td><td class="n">${fmt(a.per, 1)}</td>
+      <td class="n">${x.breakeven_move === null ? "不會虧" : (x.breakeven_move > 0 ? "+" : "") + x.breakeven_move + "%"}</td>
+      <td class="n">${x.loss_prob === null ? "-" : x.loss_prob + "%"}</td>
+      <td class="n ${a.ev > 0 ? "yes" : "no"}">${a.ev === null ? "-" : fmt(a.ev * a.pv, 0)}</td>
+      <td class="n">${fmt(a.evPer, 1)}</td>
+      <td class="n ${a.real > 0 ? "yes" : a.real < 0 ? "no" : ""}">${a.real === null ? "未結算" : fmt(a.real * a.pv, 0)}</td></tr>`; }).join("") +
+    `</table></div>`;
+}
+
+function renderSpreads() {
+  const sp = REP.spreads, box = $("#spreadBox");
+  if (!sp) { box.innerHTML = `<div class="banner">此交易日沒有價差資料（舊資料或未重算）。</div>`; return; }
+  if (sp.error) { box.innerHTML = `<div class="banner alert">${esc(sp.error)}</div>`; return; }
+  const el = sp.eligible.length
+    ? sp.eligible.map((e) => `${esc(e.expiry)}（${e.settle_date.slice(5).replace("-", "/")} 結算，${e.sessions} 個交易時段）：結算價必在 <b>${fmt(e.lo, 0)} ～ ${fmt(e.hi, 0)}</b>`).join("<br>")
+    : "今日之後 2 個交易時段內沒有序列結算，價差賣方不適用";
+  box.innerHTML = `<div class="cards">
+      <div class="card"><div class="mut">今日加權指數收盤 · ${esc(sp.taiex_source || "")}</div><div class="big">${fmt(sp.prev_close, 2)}</div>
+        <div class="mut">市場狀態 <span class="${esc(sp.market_status)}">${esc(STATUS[sp.market_status] || sp.market_status)}</span>　歷史樣本 ${sp.hist_days} 天</div></div>
+      <div class="card"><div class="mut">可做價差賣方的序列</div><div>${el}</div></div>
+    </div>` + SPREAD_GROUPS.map(([g, name, desc]) => `<h3>${name}</h3><div class="mut" style="margin-bottom:6px">${desc}</div>
+      ${g === "directional" && !["LIMIT_UP", "LIMIT_DOWN", "TOUCHED_UP", "TOUCHED_DOWN"].includes(sp.market_status)
+        ? `<div class="empty">今日期貨未觸及漲跌停，不產生方向性價差</div>` : spreadTable(g, sp[g] || [])}`).join("");
+}
+
+function renderSpreadHist() {
+  const days = INDEX.days.filter((d) => d.spreads);
+  const tot = {};
+  for (const [g] of SPREAD_GROUPS) {
+    const r = days.map((d) => d.spreads[g]).filter((x) => x && x.realized_ntd !== null);
+    tot[g] = { days: r.length, sum: r.reduce((a, x) => a + x.realized_ntd, 0),
+               picks: r.reduce((a, x) => a + x.settled, 0), losses: r.reduce((a, x) => a + x.losses, 0) };
+  }
+  $("#spreadTotals").innerHTML = `<div class="cards">` + SPREAD_GROUPS.map(([g, name]) => { const t = tot[g]; return `
+    <div class="card"><div class="mut">${name}</div><div class="big ${t.sum > 0 ? "yes" : t.sum < 0 ? "no" : ""}">${fmt(t.sum, 0)} 元</div>
+    <div class="mut">已結算 ${t.picks} 組（${t.days} 天）・虧損 ${t.losses} 組</div></div>`; }).join("") + `</div>`;
+  const cell = (x) => (!x || !x.n ? `<td class="n mut">-</td><td class="n mut">-</td>` :
+    `<td class="n">${x.n}</td><td class="n ${x.realized_ntd > 0 ? "yes" : x.realized_ntd < 0 ? "no" : ""}">${x.realized_ntd === null ? "未結算" : fmt(x.realized_ntd, 0)}${x.losses ? `（虧 ${x.losses}）` : ""}</td>`);
+  const rows = days.filter((d) => SPREAD_GROUPS.some(([g]) => d.spreads[g] && d.spreads[g].n));
+  $("#spreadHist").innerHTML = `<tr><th rowspan="2">進場日</th><th colspan="2">零風險</th><th colspan="2">有限風險</th><th colspan="2">方向性</th></tr>
+    <tr><th>組數</th><th>首選實際(元)</th><th>組數</th><th>首選實際(元)</th><th>組數</th><th>首選實際(元)</th></tr>` +
+    (rows.length ? rows.map((d) => `<tr class="click" data-date="${d.date}"><td>${d.date}</td>${cell(d.spreads.zero)}${cell(d.spreads.limited)}${cell(d.spreads.directional)}</tr>`).join("")
+      : `<tr><td colspan="7" class="empty">尚無價差紀錄</td></tr>`);
+  document.querySelectorAll("#spreadHist tr.click").forEach((tr) => tr.onclick = () => {
+    $("#date").value = tr.dataset.date; loadDay(tr.dataset.date);
   });
 }
 

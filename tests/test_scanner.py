@@ -345,3 +345,85 @@ def test_expiry_sell_charges_settlement_only_when_itm():
     es = analyze_expiry(dt.date(2026, 11, 11), opt, {"202611W2": dt.date(2026, 11, 11)}, taiex, load_config())
     z = es["series"][0]["zones"]["zero"][0]
     assert z["opt_sides"] == 1 and abs(z["pnl_last"] - (0.8 - 0.7 - 0.0008)) < 0.01   # 價外歸零只付開倉
+
+
+# ---------------------------------------------------------------- 策略三：風險可控價差
+def test_spread_math_and_bounds():
+    from scanner.spreads import bounds, range_eval, sessions_until, n_session_returns
+    cfg = load_config()
+    assert sessions_until(dt.date(2026, 11, 10), dt.date(2026, 11, 11)) == 1
+    assert sessions_until(dt.date(2026, 11, 12), dt.date(2026, 11, 16)) == 2      # 週四 → 週一（跨週末）
+    lo, hi = bounds(40000, 1, cfg)
+    assert round(lo) == 35928 and round(hi) == 44088
+    legs = [("C", 43000, -1), ("C", 43200, 1)]
+    (w, _), (b, _), itm = range_eval(legs, lo, hi)
+    assert (w, b, itm) == (-200, 0, 2)
+    legs = [("C", 43500, -1), ("C", 44500, 1)]                    # 保護腳在上限之外 → 最大虧損只到上限
+    (w, _), _, itm = range_eval(legs, lo, hi)
+    assert round(w) == -(44088 - 43500) and itm == 1
+    r = n_session_returns([0.01, -0.02, 0.03], 2)
+    assert [round(x, 4) for x in r] == [round(1.01 * 0.98 - 1, 4), round(0.98 * 1.03 - 1, 4)]
+
+
+def _chain(rows):
+    return {float(k): {s: _q(b, a)} for k, s, b, a in rows}
+
+
+def test_zero_risk_spread_and_naked_comparison():
+    from scanner.spreads import zero_risk, bounds
+    cfg = load_config()
+    lo, hi = bounds(40000, 1, cfg)
+    ch = _chain([(44200, "C", 3.0, 3.5), (44300, "C", 0.5, 1.0), (35800, "P", 0.2, 0.3)])
+    ch[35700.0] = {"P": _q(0.1, 2.0)}
+    z = zero_risk(ch, "W", dt.date(2026, 11, 11), 1, lo, hi, 40000, cfg)
+    assert len(z) == 1                                             # Put 那組淨收 0.2 − 2.0 < 0，不列
+    x = z[0]
+    assert x["desc"] == "賣C44200@3、買C44300@1" and x["worst_pts"] == x["best_pts"] > 0
+    assert x["capital"] == 100 * 50 - 2 * 50 and x["per_10k"] > 4 * x["naked_per_10k"]   # 保證金 4,900 vs 裸賣 94,000
+
+
+def test_limited_risk_requires_move_and_reports_ev():
+    from scanner.spreads import limited_risk, bounds
+    cfg = load_config()
+    lo, hi = bounds(40000, 1, cfg)
+    ch = _chain([(41000, "C", 60, 61), (41200, "C", 40, 41), (42000, "C", 20, 21), (42200, "C", 10, 11)])
+    rets = [0.0] * 150 + [0.08] * 2
+    out = limited_risk(ch, "W", dt.date(2026, 11, 11), 1, lo, hi, 40000, cfg, rets)
+    shorts = {x["legs"][0][1] for x in out}
+    assert 41000 not in shorts and 42000 in shorts                 # 41000 只差 2.5%，未達 3% 門檻
+    x = next(x for x in out if x["legs"][0][1] == 42000 and x["legs"][1][1] == 42200)
+    assert x["worst_pts"] < 0 < x["best_pts"] and x["breakeven_move"] > 5
+    assert x["loss_prob"] == round(2 / 152 * 100, 1) and x["ev_pts"] is not None
+
+
+def test_directional_only_on_limit_days():
+    from scanner.spreads import scan_spreads
+    cfg = load_config()
+    ch = {("W", "一般"): _chain([(40000, "C", 300, 310), (40500, "C", 120, 125), (41000, "C", 40, 42)])}
+    exps = {"W": dt.date(2026, 11, 13)}
+    tx = {"close": 40000.0}
+    normal = scan_spreads(dt.date(2026, 11, 11), ch, exps, tx, {"一般": {"status": "NORMAL"}}, {"W": 40000}, cfg)
+    assert normal["directional"] == []
+    up = scan_spreads(dt.date(2026, 11, 11), ch, exps, tx, {"一般": {"status": "LIMIT_UP"}}, {"W": 40200}, cfg)
+    assert up["directional"] and all(x["legs"][0][2] == 1 and x["legs"][0][0] == "C" for x in up["directional"])
+    assert all(x["worst_pts"] < 0 and x["best_pts"] > 0 for x in up["directional"])
+
+
+def test_settle_pending_backfills_realized(tmp_path):
+    import json
+    from scanner.spreads import settle_pending, spread_summary
+    cfg = load_config()
+    it = {"kind": "有限風險價差賣方", "expiry": "W", "legs": [["C", 42000, -1], ["C", 42200, 1]],
+          "net_pts": 10.0, "open_cost": 1.42, "open_sides": 2, "best_ntd": 429, "worst_ntd": -9571,
+          "best_pts": 8.58, "worst_pts": -191.4, "above_min": True, "realized_pts": None}
+    rep = {"spreads": {"zero": [], "limited": [it], "directional": []}}
+    (tmp_path / "daily").mkdir()
+    (tmp_path / "daily" / "2026-11-10.json").write_text(json.dumps(rep), "utf-8")
+    (tmp_path / "index.json").write_text(json.dumps({"days": [{"date": "2026-11-10"}]}), "utf-8")
+    dump = lambda o: json.dumps(o, ensure_ascii=False)
+    assert settle_pending(tmp_path, dt.date(2026, 11, 11), {"W": 42100.0}, cfg, dump) == 1
+    got = json.loads((tmp_path / "daily" / "2026-11-10.json").read_text("utf-8"))["spreads"]["limited"][0]
+    # 收 10 點、結算 42100 → 賣方賠 100 點；開倉成本 1.42、結算時 1 口價內：0.7 + 42100 × 2e-5
+    assert got["realized_pts"] == round(10 - 100 - 1.42 - (0.7 + 42100 * 2e-5), 2) and got["realized_sides"] == 3
+    idx = json.loads((tmp_path / "index.json").read_text("utf-8"))
+    assert idx["days"][0]["spreads"]["limited"]["realized_ntd"] == got["realized_ntd"]

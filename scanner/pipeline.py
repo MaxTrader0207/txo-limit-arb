@@ -8,6 +8,7 @@ from pathlib import Path
 
 from . import taifex, twse
 from .expiry_sell import analyze_expiry
+from .spreads import scan_spreads, settle_pending, spread_summary
 from .checks import scan_calendar, scan_chain
 from .config import TPE
 from .market import (LIMIT_EVENTS, num, ok, build_chains, expiry_dates, front_futures, fut_settle_date, hedge_contracts,
@@ -16,7 +17,8 @@ from .market import (LIMIT_EVENTS, num, ok, build_chains, expiry_dates, front_fu
 KEEP_CHAIN_DAYS = 30   # 只保留最近 N 個交易日的完整選擇權鏈；更舊的可用 rebuild 從封存重算
 
 
-def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex: dict | None = None) -> dict:
+def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex: dict | None = None,
+            hist: list[float] | None = None) -> dict:
     exp_dates = expiry_dates(opt)
 
     # 每個時段、每口對沖用期貨（小台月＋週契約）：狀態 + 實際結算日
@@ -87,6 +89,9 @@ def analyze(date: dt.date, fut, opt, cfg: dict, all_strikes: bool = False, taiex
                        or any(st in LIMIT_EVENTS for _, st in used),
         "sessions": sessions, "series": series, "signals": signals, "expired_today": expired,
         "expiry_sell": analyze_expiry(date, opt, exp_dates, taiex, cfg),
+        "spreads": scan_spreads(date, chains, exp_dates, taiex, sessions,
+                                {s["expiry"]: s["implied_fwd"] for s in series if s["session"] == "一般"}, cfg, hist),
+        "taiex": taiex,
         "settle_rule": "TX、小台（含週三週契約）與 TXO（月選、週三 W1/W2/W4/W5、週五 F）最後結算價皆為到期日 13:00–13:30 加權指數簡單算術平均",
         "config": {k: v for k, v in cfg.items()},
     }
@@ -116,6 +121,7 @@ def summary(rep: dict) -> dict:
         "n_calendar": sum(1 for s in sig if s.get("nature") == "跨週別" and s.get("quality") == "可靠"),
         "best": {k: best[k] for k in ("type", "expiry", "edge_pts", "legs")} if best else None,
         "expiry": expiry_summary(rep.get("expiry_sell")),
+        "spreads": spread_summary(rep.get("spreads")),
     }
 
 
@@ -144,6 +150,14 @@ def write(rep: dict, data_dir: Path) -> None:
     idx = {"updated": rep["generated"], "latest": days[0]["date"], "days": days}
     idx_p.write_text(dump(idx), "utf-8")
     prune_chains(daily, [d["date"] for d in days][:KEEP_CHAIN_DAYS], dump)
+    # 結算日：以最後結算價回填之前幾天的價差訊號實際損益
+    es = rep.get("expiry_sell") or {}
+    finals = {s["expiry"]: s["final_settle"] for s in es.get("series", [])
+              if s.get("final_settle") and not s.get("settle_approx") and not s.get("warnings")}
+    if finals:
+        n = settle_pending(data_dir, dt.date.fromisoformat(rep["date"]), finals, rep["config"], dump)
+        if n:
+            print(f"  回填 {n} 筆價差訊號的結算損益：{finals}")
 
 
 def prune_chains(daily: Path, keep: list[str], dump) -> None:
@@ -166,12 +180,11 @@ def run_date(date: dt.date, cfg: dict, data_dir: Path, archive_dir: Path,
     except taifex.NoData as e:
         print(f"[略過] {e}")
         return None
-    taiex = None
-    if any(d == date for d in expiry_dates(opt).values()):
-        taiex = twse.day_info(date, archive_dir, "refresh" if mode == "refresh" else
-                              ("offline" if mode == "offline" else "cache"))
-    rep = analyze(date, fut, opt, cfg, all_strikes, taiex)
-    if not rep["series"] and not rep["expiry_sell"]:
+    # 每天都需要加權指數收盤：價差策略的結算價上下限、結算日賣方
+    taiex = twse.day_info(date, archive_dir, "refresh" if mode == "refresh" else
+                          ("offline" if mode == "offline" else "cache"))
+    rep = analyze(date, fut, opt, cfg, all_strikes, taiex, twse.history_returns(archive_dir, date))
+    if not rep["series"] and not rep["expiry_sell"] and not rep.get("spreads"):
         print(f"[略過] {date} 沒有可分析的週選序列")
         return None
     write(rep, data_dir)

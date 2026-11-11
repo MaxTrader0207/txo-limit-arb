@@ -139,6 +139,9 @@ def main(argv=None) -> int:
 
     if a.cmd == "backfill":
         d, end, n = parse_date(a.start), parse_date(a.end), 0
+        from . import twse
+        twse.ensure_history([d + dt.timedelta(days=i) for i in range((end - d).days + 1)
+                             if (d + dt.timedelta(days=i)).weekday() < 5], ARCHIVE)
         while d <= end:
             if d.weekday() < 5 and (not a.expiry_only or d.weekday() in (2, 4)):
                 print(f"▶ {d}")
@@ -153,6 +156,9 @@ def main(argv=None) -> int:
         return run_live(cfg)
 
     if a.cmd == "rebuild":
+        from . import twse
+        twse.ensure_history([dt.datetime.strptime(p.name[:8], "%Y%m%d").date()
+                             for p in ARCHIVE.glob("*/*_TXO.csv.gz")], ARCHIVE)
         for p in sorted(ARCHIVE.glob("*/*_TXO.csv.gz")):
             d = dt.datetime.strptime(p.name[:8], "%Y%m%d").date()
             run_date(d, cfg, DATA, ARCHIVE, "offline", a.all_strikes)
