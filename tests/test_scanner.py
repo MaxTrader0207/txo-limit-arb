@@ -469,3 +469,27 @@ def test_postponed_settlement_uses_official_date_without_lookahead():
     assert f2["opt_settle"] == "2026-11-13" and rep_before["final_settlements"] == {}
     rep_on = analyze(dt.date(2026, 11, 16), fut, opt, load_config(), fsp=fsp)
     assert rep_on["final_settlements"] == {"202611F2": 40000.0}
+
+
+def test_split_by_date_and_bulk_archive(tmp_path, monkeypatch):
+    text = ("交易日期,契約,到期月份(週別),收盤價\n2015/06/01,TX,201506,9700\n"
+            "2015/06/02,TX,201506,9650\n2015/06/02,TX,201507,9640\n")
+    parts = taifex.split_by_date(text)
+    assert sorted(parts) == [dt.date(2015, 6, 1), dt.date(2015, 6, 2)]
+    assert parts[dt.date(2015, 6, 2)].count("\n") == 3 and parts[dt.date(2015, 6, 2)].startswith("交易日期")
+    calls = []
+
+    def fake(kind, start, retries=3, end=None):
+        calls.append((kind, start, end))
+        return text if start.month == 6 else (_ for _ in ()).throw(taifex.NoData("x"))
+    monkeypatch.setattr(taifex, "download", fake)
+    monkeypatch.setattr(taifex.time, "sleep", lambda s: None)
+    days = taifex.bulk_archive(dt.date(2015, 6, 1), dt.date(2015, 7, 3), tmp_path)
+    assert days == [dt.date(2015, 6, 1), dt.date(2015, 6, 2)]
+    assert ("TXO", dt.date(2015, 6, 1), dt.date(2015, 6, 30)) in calls and len(calls) == 6   # 2 個月 × 3 商品
+    assert (tmp_path / "2015" / "20150602_TXO.csv.gz").exists()
+
+
+def test_parse_without_session_column():
+    df = taifex.parse("交易日期,契約,到期月份(週別),收盤價\n2015/06/01,TX,201506,9700\n")
+    assert df["session"].tolist() == ["一般"]

@@ -138,18 +138,20 @@ def main(argv=None) -> int:
         return 0
 
     if a.cmd == "backfill":
-        d, end, n = parse_date(a.start), parse_date(a.end), 0
+        start, end, n = parse_date(a.start), parse_date(a.end), 0
         from . import twse
-        twse.ensure_history([d + dt.timedelta(days=i) for i in range((end - d).days + 1)
-                             if (d + dt.timedelta(days=i)).weekday() < 5], ARCHIVE)
-        taifex.fetch_fsp(ARCHIVE, d, end)
-        while d <= end:
-            if d.weekday() < 5 and (not a.expiry_only or d.weekday() in (2, 4)):
-                print(f"▶ {d}")
-                if run_date(d, cfg, DATA, ARCHIVE, "cache", a.all_strikes):
-                    n += 1
-                time.sleep(2)                      # 對期交所溫和一點
-            d += dt.timedelta(days=1)
+        # 加權指數多抓進場日前約 1.5 年，讓「歷史虧損機率」一開始就有足夠樣本
+        h0 = start - dt.timedelta(days=550)
+        twse.ensure_history([h0 + dt.timedelta(days=i) for i in range((end - h0).days + 1)
+                             if (h0 + dt.timedelta(days=i)).weekday() < 5], ARCHIVE)
+        taifex.fetch_fsp(ARCHIVE, start, end)
+        days = taifex.bulk_archive(start, end, ARCHIVE)
+        print(f"期交所資料：{len(days)} 個交易日")
+        for d in days:
+            if a.expiry_only and d.weekday() not in (2, 4):
+                continue
+            if run_date(d, cfg, DATA, ARCHIVE, "offline", a.all_strikes):
+                n += 1
         print(f"完成 {n} 個交易日")
         return 0
 

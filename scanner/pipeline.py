@@ -151,15 +151,20 @@ def write(rep: dict, data_dir: Path) -> None:
     daily = data_dir / "daily"
     daily.mkdir(parents=True, exist_ok=True)
     dump = lambda o: json.dumps(o, ensure_ascii=False, separators=(",", ":"), default=str)
-    (daily / f"{rep['date']}.json").write_text(dump(rep), "utf-8")
 
     idx_p = data_dir / "index.json"
     idx = json.loads(idx_p.read_text("utf-8")) if idx_p.exists() else {"days": []}
     days = [d for d in idx["days"] if d["date"] != rep["date"]] + [summary(rep)]
     days.sort(key=lambda d: d["date"], reverse=True)
+    keep = [d["date"] for d in days][:KEEP_CHAIN_DAYS]
+    if rep["date"] not in keep:                       # 回測舊日期：直接存精簡版
+        for s in rep["series"]:
+            s["chain"], s["chain_pruned"] = [], True
+    (daily / f"{rep['date']}.json").write_text(dump(rep), "utf-8")
     idx = {"updated": rep["generated"], "latest": days[0]["date"], "days": days}
     idx_p.write_text(dump(idx), "utf-8")
-    prune_chains(daily, [d["date"] for d in days][:KEEP_CHAIN_DAYS], dump)
+    # 只處理剛滑出保留範圍的幾天，避免每天都重讀全部檔案
+    prune_chains(daily, keep, dump, only=[d["date"] for d in days][KEEP_CHAIN_DAYS:KEEP_CHAIN_DAYS + 3])
     # 結算日：以最後結算價回填之前幾天的價差訊號實際損益
     es = rep.get("expiry_sell") or {}
     finals = {s["expiry"]: s["final_settle"] for s in es.get("series", [])
@@ -171,10 +176,13 @@ def write(rep: dict, data_dir: Path) -> None:
             print(f"  回填 {n} 筆價差訊號的結算損益：{finals}")
 
 
-def prune_chains(daily: Path, keep: list[str], dump) -> None:
+def prune_chains(daily: Path, keep: list[str], dump, only: list[str] | None = None) -> None:
     """較舊交易日的 JSON 移除完整選擇權鏈，只留摘要與訊號，避免 repo 膨脹。"""
     keep = set(keep)
-    for p in daily.glob("*.json"):
+    files = [daily / f"{d}.json" for d in only] if only is not None else daily.glob("*.json")
+    for p in files:
+        if not p.exists():
+            continue
         if p.stem in keep:
             continue
         rep = json.loads(p.read_text("utf-8"))

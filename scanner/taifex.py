@@ -31,11 +31,12 @@ class NoData(LookupError):
     """非交易日或期交所尚未更新。"""
 
 
-def download(kind: str, date: dt.date, retries: int = 3) -> str:
+def download(kind: str, date: dt.date, retries: int = 3, end: dt.date | None = None) -> str:
+    """下載單日（或 date～end，期交所限制一次不超過一個月）的日行情 CSV 原文。"""
     url, cid = (OPT_URL, "TXO") if kind == "TXO" else (FUT_URL, kind)   # kind：TX、MTX、TXO
     d = date.strftime("%Y/%m/%d")
     form = {"down_type": "1", "commodity_id": cid, "commodity_id2": "",
-            "queryStartDate": d, "queryEndDate": d}
+            "queryStartDate": d, "queryEndDate": (end or date).strftime("%Y/%m/%d")}
     last = None
     for i in range(retries):
         try:
@@ -64,6 +65,8 @@ def parse(text: str) -> pd.DataFrame:
                 rename[col] = key
                 break
     df = df.rename(columns=rename)[[v for v in rename.values()]]
+    if "session" not in df.columns:            # 2017/5/15 之前沒有夜盤，舊檔可能沒有「交易時段」欄
+        df["session"] = "一般"
     for c in df.columns:
         df[c] = df[c].astype(str).str.strip()
     for c in NUM_COLS:
@@ -71,6 +74,52 @@ def parse(text: str) -> pd.DataFrame:
             s = df[c].str.replace(",", "", regex=False)
             df[c] = pd.to_numeric(s.where(~s.isin(["-", "", "nan", "None"])), errors="coerce")
     return df
+
+
+def split_by_date(text: str) -> dict[dt.date, str]:
+    """把多日的 CSV 原文依第一欄「交易日期」拆成每日一份（保留表頭與原始格式）。"""
+    lines = text.splitlines()
+    header, out = lines[0], {}
+    for ln in lines[1:]:
+        if not ln.strip():
+            continue
+        try:
+            d = dt.datetime.strptime(ln.split(",", 1)[0].strip().strip('"'), "%Y/%m/%d").date()
+        except ValueError:
+            continue
+        out.setdefault(d, [header]).append(ln)
+    return {d: "\n".join(v) + "\n" for d, v in out.items()}
+
+
+def bulk_archive(start: dt.date, end: dt.date, archive_dir: Path, kinds=("TX", "MTX", "TXO")) -> list[dt.date]:
+    """回測用：每次下載一個月再依日期拆檔封存（比逐日快約 20 倍）；已封存的月份略過。回傳有資料的交易日。"""
+    days: set[dt.date] = set()
+    m = start.replace(day=1)
+    while m <= end:
+        nxt = (m.replace(day=28) + dt.timedelta(days=4)).replace(day=1)
+        s, e = max(m, start), min(nxt - dt.timedelta(days=1), end)
+        for kind in kinds:
+            have = {dt.datetime.strptime(p.name[:8], "%Y%m%d").date()
+                    for p in (archive_dir / f"{s:%Y}").glob(f"{s:%Y%m}*_{kind}.csv.gz")}
+            have = {d for d in have if s <= d <= e}
+            weekdays = {s + dt.timedelta(days=i) for i in range((e - s).days + 1)
+                        if (s + dt.timedelta(days=i)).weekday() < 5}
+            if have and len(have) >= len(weekdays) - 3:          # 已封存（容許約 3 天假日）
+                if kind == "TXO":
+                    days |= have
+                continue
+            try:
+                parts = split_by_date(download(kind, s, end=e))
+            except NoData:
+                continue
+            for d, txt in parts.items():
+                archive(txt, archive_dir, d, kind)
+            if kind == "TXO":
+                days |= set(parts)
+            print(f"  {s:%Y/%m} {kind}：{len(parts)} 個交易日")
+            time.sleep(3)
+        m = nxt
+    return sorted(d for d in days if start <= d <= end)
 
 
 def read_text(path: str | Path) -> str:

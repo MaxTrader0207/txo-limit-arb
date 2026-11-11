@@ -44,8 +44,11 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 350
     env:
       TZ: Asia/Taipei
+      ARCHIVE_GIT_FROM: "2025"      # 這年（含）以後的原始檔放 repo；更早的放 GitHub Releases
+      GH_TOKEN: ${{ github.token }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
@@ -56,6 +59,16 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+
+      - name: 取回舊年度原始檔（Releases）
+        if: ${{ inputs.mode == 'backfill' || inputs.mode == 'rebuild' }}
+        run: |
+          mkdir -p /tmp/arc
+          for tag in $(gh release list --limit 100 --json tagName --jq '.[].tagName' | grep '^archive-' || true); do
+            gh release download "$tag" -p '*.tar.gz' -D /tmp/arc --clobber
+          done
+          for f in /tmp/arc/*.tar.gz; do [ -e "$f" ] && tar xzf "$f"; done
+          ls archive
 
       - name: 結算日盤中快照
         if: ${{ (github.event_name == 'schedule' && contains(fromJSON('["37 1 * * 1-5","7 3 * * 1-5","17 4 * * 1-5"]'), github.event.schedule)) || inputs.mode == 'live' }}
@@ -69,6 +82,20 @@ jobs:
       - name: 用封存重算
         if: ${{ inputs.mode == 'rebuild' }}
         run: python -m scanner rebuild
+
+      - name: 舊年度原始檔上傳 Releases
+        if: ${{ inputs.mode == 'backfill' }}
+        run: |
+          for dir in archive/20*/; do
+            y=$(basename "$dir")
+            [ "$y" -ge "$ARCHIVE_GIT_FROM" ] && continue
+            tar czf "archive-$y.tar.gz" "archive/$y"
+            gh release view "archive-$y" >/dev/null 2>&1 || \
+              gh release create "archive-$y" --title "原始資料 $y" \
+                --notes "期交所 $y 年日行情原始 CSV（gzip），供 rebuild／backfill 使用；不放進 repo 以控制大小"
+            gh release upload "archive-$y" "archive-$y.tar.gz" --clobber
+            echo "已上傳 archive-$y：$(du -sh archive-$y.tar.gz | cut -f1)"
+          done
 
       - name: 提交資料
         run: |
