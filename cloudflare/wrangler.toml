@@ -5,13 +5,14 @@ compatibility_date = "2025-06-01"
 [vars]
 REPO = "MaxTrader0207/txo-limit-arb"
 
-# 時間為 UTC（台北 = UTC+8）
+# 時間為 UTC（台北 = UTC+8）；Cloudflare 的星期數字 1 = 週日，所以一律用英文縮寫
+# 模式由 worker.js 依觸發的 UTC 小時判斷（01、03、04 點＝live）
 [triggers]
 crons = [
-  "47 7 * * MON-FRI",   # 台北 15:47 日盤
-  "13 9 * * MON-FRI",   # 台北 17:13 補抓
-  "37 22 * * SUN-THU",  # 台北週一～五 06:37 夜盤
-  "37 1 * * MON-FRI",   # 台北 09:37 結算日盤中快照
-  "7 3 * * MON-FRI",    # 台北 11:07
-  "17 4 * * MON-FRI",   # 台北 12:17
+  "47 7 * * mon-fri",   # 台北 15:47 日盤
+  "13 9 * * mon-fri",   # 台北 17:13 補抓
+  "37 22 * * sun-thu",  # 台北週一～五 06:37 夜盤
+  "37 1 * * mon-fri",   # 台北 09:37 結算日盤中快照
+  "7 3 * * mon-fri",    # 台北 11:07
+  "17 4 * * mon-fri",   # 台北 12:17
 ]
