@@ -2,14 +2,15 @@ name: 掃描並部署
 
 on:
   schedule:
-    - cron: "40 7 * * 1-5"    # 台北 15:40：日盤資料
-    - cron: "10 9 * * 1-5"    # 台北 17:10：補抓（期交所延遲更新時）
-    - cron: "30 22 * * 1-5"   # 台北隔日 06:30：夜盤資料
-    # 結算日盤中快照：台北 09:30、11:00、12:15（GitHub 排程可能延遲數分鐘到十幾分鐘）
-    # 每個平日都跑，由程式依期交所實際到期日判斷今天是否為結算日（含假日順延到週一、週四等）
-    - cron: "30 1 * * 1-5"
-    - cron: "0 3 * * 1-5"
-    - cron: "15 4 * * 1-5"
+    # GitHub 排程在整點、半點負載高時會延遲或被丟棄，所以避開 :00、:30；
+    # 主要觸發來源建議用 cloudflare/ 的 Worker（準時），這裡當備援。每次 run 都會補跑最近漏掉的交易日。
+    - cron: "47 7 * * 1-5"    # 台北 15:47：日盤資料
+    - cron: "13 9 * * 1-5"    # 台北 17:13：補抓（期交所延遲更新時）
+    - cron: "37 22 * * 0-4"   # 台北週一～五 06:37：前一晚夜盤（期交所歸入當日）
+    # 結算日盤中快照：台北 09:37、11:07、12:17；每個平日都跑，由程式判斷今天是否為結算日
+    - cron: "37 1 * * 1-5"
+    - cron: "7 3 * * 1-5"
+    - cron: "17 4 * * 1-5"
   workflow_dispatch:
     inputs:
       mode:
@@ -57,10 +58,10 @@ jobs:
       - run: pip install -r requirements.txt
 
       - name: 結算日盤中快照
-        if: ${{ (github.event_name == 'schedule' && contains(fromJSON('["30 1 * * 1-5","0 3 * * 1-5","15 4 * * 1-5"]'), github.event.schedule)) || inputs.mode == 'live' }}
+        if: ${{ (github.event_name == 'schedule' && contains(fromJSON('["37 1 * * 1-5","7 3 * * 1-5","17 4 * * 1-5"]'), github.event.schedule)) || inputs.mode == 'live' }}
         run: python -m scanner live
       - name: 執行掃描
-        if: ${{ (github.event_name == 'schedule' && !contains(fromJSON('["30 1 * * 1-5","0 3 * * 1-5","15 4 * * 1-5"]'), github.event.schedule)) || inputs.mode == 'run' }}
+        if: ${{ (github.event_name == 'schedule' && !contains(fromJSON('["37 1 * * 1-5","7 3 * * 1-5","17 4 * * 1-5"]'), github.event.schedule)) || inputs.mode == 'run' }}
         run: python -m scanner run --date "${{ inputs.date }}"
       - name: 區間回測
         if: ${{ inputs.mode == 'backfill' }}

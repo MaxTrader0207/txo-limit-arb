@@ -21,6 +21,13 @@ async function init() {
     $("#updated").textContent = "尚無資料，等待第一次排程執行。";
     return;
   }
+  // 排程健康檢查：平日超過 26 小時沒更新就提示
+  const ageH = (Date.now() - new Date(INDEX.updated).getTime()) / 3600e3;
+  const wd = new Date(Date.now() + 8 * 3600e3).getUTCDay();
+  if (ageH > 26 && wd >= 2 && wd <= 6) {
+    $("#updated").insertAdjacentHTML("afterend",
+      `<div class="banner alert">⚠️ 資料已 ${Math.floor(ageH)} 小時未更新，排程可能沒有觸發。可到 Actions 手動執行，或設定 Cloudflare 觸發器。</div>`);
+  }
   $("#date").innerHTML = INDEX.days.map((d) =>
     `<option value="${d.date}">${d.date}${d.limit_event ? " ⚠" : ""}${d.n_feasible ? " ★" + d.n_feasible : ""}</option>`).join("");
   const want = new URLSearchParams(location.search).get("date");

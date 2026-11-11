@@ -264,3 +264,18 @@ def test_20261103_stale_weekly_futures_last_price_ignored():
     assert w2["fut_last"] == 45080 and abs(w2["futures"] - 43212.5) < 1
     big = [x for x in rep["signals"] if x["riskless"] and x["feasible"] and x["edge_pts"] > 50]
     assert big == []
+
+
+def test_catch_up_reruns_missing_and_night_only_days(tmp_path, monkeypatch):
+    import json
+    import scanner.__main__ as m
+    (tmp_path / "index.json").write_text(json.dumps({"days": [
+        {"date": "2026-11-09", "status": {"一般": "NORMAL", "盤後": "NORMAL"}},
+        {"date": "2026-11-06", "status": {"盤後": "NORMAL"}},          # 只有夜盤，日盤排程被丟棄
+    ]}), "utf-8")
+    calls = []
+    monkeypatch.setattr(m, "DATA", tmp_path)
+    monkeypatch.setattr(m, "run_date", lambda d, *a, **k: calls.append(d))
+    monkeypatch.setattr(m.time, "sleep", lambda s: None)
+    m.catch_up(dt.date(2026, 11, 11), load_config())
+    assert calls == [dt.date(2026, 11, 10), dt.date(2026, 11, 6), dt.date(2026, 11, 5), dt.date(2026, 11, 4)]

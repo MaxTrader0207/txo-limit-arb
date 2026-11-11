@@ -91,6 +91,25 @@ def run_live(cfg) -> int:
     return 0
 
 
+def catch_up(today: dt.date, cfg, all_strikes=False, days: int = 7) -> None:
+    """排程可能被 GitHub 丟棄：補跑最近 N 天內漏掉、或只有夜盤沒有日盤的平日。"""
+    import json
+    idx_p = DATA / "index.json"
+    have = {}
+    if idx_p.exists():
+        have = {d["date"]: d for d in json.loads(idx_p.read_text("utf-8"))["days"]}
+    for back in range(1, days + 1):
+        d = today - dt.timedelta(days=back)
+        s = have.get(d.isoformat())
+        if d.weekday() >= 5 or (s and "一般" in s.get("status", {})):
+            continue
+        print(f"▶ 補跑 {d}")
+        rep = run_date(d, cfg, DATA, ARCHIVE, "refresh", all_strikes)
+        if rep:
+            print_report(rep)
+        time.sleep(2)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="scanner")
     ap.add_argument("--min-edge", type=float)
@@ -113,6 +132,7 @@ def main(argv=None) -> int:
         if rep:
             print_report(rep)
             notify(rep, os.environ.get("PAGES_URL", ""))
+        catch_up(date, cfg, a.all_strikes)
         return 0
 
     if a.cmd == "backfill":

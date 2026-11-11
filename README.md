@@ -122,6 +122,28 @@
 - 隔日 06:30 抓夜盤（期交所把夜盤歸到下一個交易日）
 - 每次都重新下載當日 CSV，所以日盤跑完會蓋掉只有夜盤的版本
 
+## 排程可靠性
+
+GitHub 自帶排程在整點、半點負載高時會延遲甚至被丟棄（2026/11/11 實測：夜盤與結算日盤中排程都沒觸發）。三層保護：
+
+1. 排程避開 :00、:30（改 :07、:13、:17、:37、:47）
+2. 每次 `run` 會補跑最近 7 天內漏掉、或只有夜盤沒有日盤的交易日
+3. **建議**：用 `cloudflare/` 的 Worker 當主要觸發來源（Cloudflare Cron 準時），GitHub 排程留作備援；兩邊都觸發也沒關係，執行是冪等的
+
+網頁在平日超過 26 小時沒更新會顯示警告。
+
+### 設定 Cloudflare 觸發器
+
+1. GitHub → Settings → Developer settings → Fine-grained tokens → 新增：Repository access 只選 `txo-limit-arb`，Permissions → Actions：**Read and write**
+2. 本機：
+   ```bash
+   cd cloudflare
+   npx wrangler login
+   npx wrangler secret put GITHUB_TOKEN   # 貼上剛剛的 token
+   npx wrangler deploy
+   ```
+3. Cloudflare 後台 → Workers → txo-limit-arb-cron → Triggers 可看到 6 個排程；Logs 可確認 `dispatched run / live`
+
 ## 第一次設定
 
 1. 建 repo 並 push 這個資料夾

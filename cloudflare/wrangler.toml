@@ -1,0 +1,17 @@
+name = "txo-limit-arb-cron"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+
+[vars]
+REPO = "MaxTrader0207/txo-limit-arb"
+
+# 時間為 UTC（台北 = UTC+8）
+[triggers]
+crons = [
+  "47 7 * * MON-FRI",   # 台北 15:47 日盤
+  "13 9 * * MON-FRI",   # 台北 17:13 補抓
+  "37 22 * * SUN-THU",  # 台北週一～五 06:37 夜盤
+  "37 1 * * MON-FRI",   # 台北 09:37 結算日盤中快照
+  "7 3 * * MON-FRI",    # 台北 11:07
+  "17 4 * * MON-FRI",   # 台北 12:17
+]
