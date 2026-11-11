@@ -284,7 +284,7 @@ const SPREAD_GROUPS = [
   ["zero", "零風險價差賣方", "兩腳都在結算價區間外，到期必歸零；買保護只為了把保證金從裸賣 B 值降到價差寬度"],
   ["limited", "有限風險價差賣方", "賣出點在區間內，最大虧損＝區間內最壞情況；指數要漲跌超過損平點才會虧"],
   ["directional", "漲跌停日方向性價差", "期貨鎖漲跌停時順勢買進借方價差，最大虧損＝付出的權利金（方向性，非套利）"],
-  ["ma_bull", "均線回檔多頭價差", "加權指數收盤近 10 日首次跌破「上揚中」的 30／60／100 日均線：最近結算序列買 MA×0.98 Call、賣 MA×1.02 Call，持有到結算（方向性，最大虧損＝付出的權利金）"],
+  ["ma_bull", "均線回檔多頭價差", "加權指數收盤近 10 日首次跌破「上揚中」的 60 日均線：最近結算序列買 MA×0.98 Call、賣 MA×1.02 Call，持有到結算（方向性，最大虧損＝付出的權利金）"],
 ];
 const DEBIT_GROUPS = ["directional", "ma_bull"];
 
@@ -334,7 +334,7 @@ function renderSpreads() {
       ${g === "directional" && !["LIMIT_UP", "LIMIT_DOWN", "TOUCHED_UP", "TOUCHED_DOWN"].includes(sp.market_status)
         ? `<div class="empty">今日期貨未觸及漲跌停，不產生方向性價差</div>`
         : g === "ma_bull" && !(sp.ma_triggers || []).length
-        ? `<div class="empty">今日沒有均線觸發（收盤未在近 10 日首次跌破上揚的 30／60／100MA）</div>`
+        ? `<div class="empty">今日沒有均線觸發（收盤未在近 10 日首次跌破上揚的 60MA）</div>`
         : spreadTable(g, sp[g] || [])}`).join("");
 }
 

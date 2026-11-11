@@ -32,7 +32,7 @@ DEFAULTS = {
     "spread_max_sessions": 2, # 價差賣方：距結算最多幾個交易時段（1＝結算前一日）
     "dir_max_sessions": 5,    # 方向性價差：距結算最多幾個交易時段
     "spread_min_hist": 120,
-    "ma_periods": [30, 60, 100],   # 均線回檔多頭價差
+    "ma_periods": [60],           # 均線回檔多頭價差（回測後只做 60MA；可用 MA_PERIODS=30,60,100 改回）
     "ma_lookback": 10,
     "ma_strike_pct": 0.02,
     "ma_min_gap_pct": 0.0,    # 收盤至少要低於均線幾 %（例 1.0＝跌破 1% 才進場）；0＝只要跌破   # 至少要有幾筆歷史漲跌幅，才計算平均損益與虧損機率
