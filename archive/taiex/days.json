@@ -25230,5 +25230,13 @@
 "open": 43512.42,
 "prev_close": 43675.12,
 "source": "Yahoo ^TWII"
+},
+"2026-11-17": {
+"close": 40206.62,
+"high": 41533.84,
+"low": 39786.45,
+"open": 40546.64,
+"prev_close": 41040.08,
+"source": "Yahoo ^TWII"
 }
 }
